@@ -1,0 +1,23 @@
+page = 23
+namespace = 'Notes'
+xmlns = 'notes'
+
+[[tags]]
+token = 5
+name = 'Subject'
+
+[[tags]]
+token = 6
+name = 'MessageClass'
+
+[[tags]]
+token = 7
+name = 'LastModifiedDate'
+
+[[tags]]
+token = 8
+name = 'Categories'
+
+[[tags]]
+token = 9
+name = 'Category'

@@ -1,0 +1,39 @@
+page = 8
+namespace = 'MeetingResponse'
+xmlns = 'meetingresponse'
+
+[[tags]]
+token = 5
+name = 'CalendarId'
+
+[[tags]]
+token = 6
+name = 'CollectionId'
+
+[[tags]]
+token = 7
+name = 'MeetingResponse'
+
+[[tags]]
+token = 8
+name = 'RequestId'
+
+[[tags]]
+token = 9
+name = 'Request'
+
+[[tags]]
+token = 10
+name = 'Result'
+
+[[tags]]
+token = 11
+name = 'Status'
+
+[[tags]]
+token = 12
+name = 'UserResponse'
+
+[[tags]]
+token = 14
+name = 'InstanceId'

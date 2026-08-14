@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    runs-on: macos-15
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal \
+            --component clippy,rustfmt,llvm-tools-preview \
+            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default 1.95.0
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+          fallback: none
+      - name: Install dependency and coverage tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-llvm-cov
+          fallback: none
+      - name: Install Gitleaks
+        run: brew install gitleaks
+      - name: Run complete quality gate
+        run: cargo xtask check
+
+  example-build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal \
+            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default 1.95.0
+      - name: Verify public profile
+        run: cargo xtask profile verify
+      - name: Reject public profile for release bundles
+        run: |
+          if cargo xtask profile verify --release; then
+            echo 'development profile unexpectedly passed the release gate' >&2
+            exit 1
+          fi
+      - name: Build both example targets
+        run: |
+          cargo build --locked --release --package eas-mail-mcp --target aarch64-apple-darwin
+          cargo build --locked --release --package eas-mail-mcp --target x86_64-apple-darwin
+      - name: Audit public tree and history
+        run: cargo xtask public-audit

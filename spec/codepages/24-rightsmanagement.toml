@@ -1,0 +1,83 @@
+page = 24
+namespace = 'RightsManagement'
+xmlns = 'rightsmanagement'
+
+[[tags]]
+token = 5
+name = 'RightsManagementSupport'
+
+[[tags]]
+token = 6
+name = 'RightsManagementTemplates'
+
+[[tags]]
+token = 7
+name = 'RightsManagementTemplate'
+
+[[tags]]
+token = 8
+name = 'RightsManagementLicense'
+
+[[tags]]
+token = 9
+name = 'EditAllowed'
+
+[[tags]]
+token = 10
+name = 'ReplyAllowed'
+
+[[tags]]
+token = 11
+name = 'ReplyAllAllowed'
+
+[[tags]]
+token = 12
+name = 'ForwardAllowed'
+
+[[tags]]
+token = 13
+name = 'ModifyRecipientsAllowed'
+
+[[tags]]
+token = 14
+name = 'ExtractAllowed'
+
+[[tags]]
+token = 15
+name = 'PrintAllowed'
+
+[[tags]]
+token = 16
+name = 'ExportAllowed'
+
+[[tags]]
+token = 17
+name = 'ProgrammaticAccessAllowed'
+
+[[tags]]
+token = 18
+name = 'Owner'
+
+[[tags]]
+token = 19
+name = 'ContentExpiryDate'
+
+[[tags]]
+token = 20
+name = 'TemplateID'
+
+[[tags]]
+token = 21
+name = 'TemplateName'
+
+[[tags]]
+token = 22
+name = 'TemplateDescription'
+
+[[tags]]
+token = 23
+name = 'ContentOwner'
+
+[[tags]]
+token = 24
+name = 'RemoveRightsManagementDistribution'

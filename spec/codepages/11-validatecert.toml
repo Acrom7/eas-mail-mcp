@@ -1,0 +1,27 @@
+page = 11
+namespace = 'ValidateCert'
+xmlns = 'validatecert'
+
+[[tags]]
+token = 5
+name = 'ValidateCert'
+
+[[tags]]
+token = 6
+name = 'Certificates'
+
+[[tags]]
+token = 7
+name = 'Certificate'
+
+[[tags]]
+token = 8
+name = 'CertificateChain'
+
+[[tags]]
+token = 9
+name = 'CheckCRL'
+
+[[tags]]
+token = 10
+name = 'Status'

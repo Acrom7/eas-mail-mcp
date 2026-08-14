@@ -1,0 +1,13 @@
+schema_version = 1
+bundle_version = "example-1"
+development_only = true
+
+[[profiles]]
+id = "example"
+display_name = "Example EAS"
+host = "mail.example.invalid"
+email_domains = ["example.invalid"]
+device_id_length = 16
+
+[profiles.trust]
+mode = "system"

@@ -1,0 +1,63 @@
+page = 22
+namespace = 'Email2'
+xmlns = 'email2'
+
+[[tags]]
+token = 5
+name = 'UmCallerID'
+
+[[tags]]
+token = 6
+name = 'UmUserNotes'
+
+[[tags]]
+token = 7
+name = 'UmAttDuration'
+
+[[tags]]
+token = 8
+name = 'UmAttOrder'
+
+[[tags]]
+token = 9
+name = 'ConversationId'
+
+[[tags]]
+token = 10
+name = 'ConversationIndex'
+
+[[tags]]
+token = 11
+name = 'LastVerbExecuted'
+
+[[tags]]
+token = 12
+name = 'LastVerbExecutionTime'
+
+[[tags]]
+token = 13
+name = 'ReceivedAsBcc'
+
+[[tags]]
+token = 14
+name = 'Sender'
+
+[[tags]]
+token = 15
+name = 'CalendarType'
+
+[[tags]]
+token = 16
+name = 'IsLeapMonth'
+
+[[tags]]
+token = 17
+name = 'AccountId'
+
+[[tags]]
+token = 18
+name = 'FirstDayOfWeek'
+
+[[tags]]
+token = 19
+name = 'MeetingMessageType'

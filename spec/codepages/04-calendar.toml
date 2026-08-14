@@ -1,0 +1,179 @@
+page = 4
+namespace = 'Calendar'
+xmlns = 'calendar'
+
+[[tags]]
+token = 5
+name = 'TimeZone'
+
+[[tags]]
+token = 6
+name = 'AllDayEvent'
+
+[[tags]]
+token = 7
+name = 'Attendees'
+
+[[tags]]
+token = 8
+name = 'Attendee'
+
+[[tags]]
+token = 9
+name = 'Email'
+
+[[tags]]
+token = 10
+name = 'Name'
+
+[[tags]]
+token = 13
+name = 'BusyStatus'
+
+[[tags]]
+token = 14
+name = 'Categories'
+
+[[tags]]
+token = 15
+name = 'Category'
+
+[[tags]]
+token = 17
+name = 'DtStamp'
+
+[[tags]]
+token = 18
+name = 'EndTime'
+
+[[tags]]
+token = 19
+name = 'Exception'
+
+[[tags]]
+token = 20
+name = 'Exceptions'
+
+[[tags]]
+token = 21
+name = 'Deleted'
+
+[[tags]]
+token = 22
+name = 'ExceptionStartTime'
+
+[[tags]]
+token = 23
+name = 'Location'
+
+[[tags]]
+token = 24
+name = 'MeetingStatus'
+
+[[tags]]
+token = 25
+name = 'OrganizerEmail'
+
+[[tags]]
+token = 26
+name = 'OrganizerName'
+
+[[tags]]
+token = 27
+name = 'Recurrence'
+
+[[tags]]
+token = 28
+name = 'Type'
+
+[[tags]]
+token = 29
+name = 'Until'
+
+[[tags]]
+token = 30
+name = 'Occurrences'
+
+[[tags]]
+token = 31
+name = 'Interval'
+
+[[tags]]
+token = 32
+name = 'DayOfWeek'
+
+[[tags]]
+token = 33
+name = 'DayOfMonth'
+
+[[tags]]
+token = 34
+name = 'WeekOfMonth'
+
+[[tags]]
+token = 35
+name = 'MonthOfYear'
+
+[[tags]]
+token = 36
+name = 'Reminder'
+
+[[tags]]
+token = 37
+name = 'Sensitivity'
+
+[[tags]]
+token = 38
+name = 'Subject'
+
+[[tags]]
+token = 39
+name = 'StartTime'
+
+[[tags]]
+token = 40
+name = 'UID'
+
+[[tags]]
+token = 41
+name = 'AttendeeStatus'
+
+[[tags]]
+token = 42
+name = 'AttendeeType'
+
+[[tags]]
+token = 51
+name = 'DisallowNewTimeProposal'
+
+[[tags]]
+token = 52
+name = 'ResponseRequested'
+
+[[tags]]
+token = 53
+name = 'AppointmentReplyTime'
+
+[[tags]]
+token = 54
+name = 'ResponseType'
+
+[[tags]]
+token = 55
+name = 'CalendarType'
+
+[[tags]]
+token = 56
+name = 'IsLeapMonth'
+
+[[tags]]
+token = 57
+name = 'FirstDayOfWeek'
+
+[[tags]]
+token = 58
+name = 'OnlineMeetingConfLink'
+
+[[tags]]
+token = 59
+name = 'OnlineMeetingExternalLink'

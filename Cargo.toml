@@ -1,0 +1,71 @@
+[workspace]
+members = ["crates/app", "crates/eas", "crates/harness", "crates/profile", "xtask"]
+default-members = ["crates/app", "crates/eas", "crates/harness"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+authors = ["Matvey Radchenko"]
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+base64 = "0.22.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.5.54", features = ["derive"] }
+dirs = "6.0.0"
+futures = "0.3.31"
+hmac = "0.12.1"
+html2text = "0.16.7"
+json5 = "0.4.1"
+keyring = { version = "3.6.3", features = ["apple-native"] }
+quick-xml = "0.41.0"
+rand = "0.9.2"
+reqwest = { version = "0.12.28", default-features = false, features = ["gzip", "http2", "rustls-tls-native-roots"] }
+rcgen = "0.14.9"
+rmcp = { version = "=3.0.1", features = ["macros", "schemars", "server", "transport-io"] }
+rpassword = "7.4.0"
+rusqlite = "0.38.0"
+schemars = { version = "1.2.0", features = ["chrono04", "uuid1"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+tempfile = "3.24.0"
+thiserror = "2.0.17"
+tokio = { version = "1.49.0", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = "0.26.4"
+toml = "0.9.8"
+toml_edit = "0.25.1"
+uuid = { version = "1.19.0", features = ["serde", "v4"] }
+wait-timeout = "0.2.1"
+zeroize = { version = "1.8.2", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cognitive_complexity = "deny"
+dbg_macro = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+panic = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+too_many_lines = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = "symbols"

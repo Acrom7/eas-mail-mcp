@@ -1,0 +1,33 @@
+[package]
+name = "eas-mail-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+quick-xml.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[build-dependencies]
+eas-mail-profile = { version = "0.1.0", path = "../profile" }
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+proptest = "1.9.0"
+rcgen.workspace = true
+tokio-rustls.workspace = true
+
+[lints]
+workspace = true

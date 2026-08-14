@@ -1,0 +1,103 @@
+page = 10
+namespace = 'ResolveRecipients'
+xmlns = 'resolverecipients'
+
+[[tags]]
+token = 5
+name = 'ResolveRecipients'
+
+[[tags]]
+token = 6
+name = 'Response'
+
+[[tags]]
+token = 7
+name = 'Status'
+
+[[tags]]
+token = 8
+name = 'Type'
+
+[[tags]]
+token = 9
+name = 'Recipient'
+
+[[tags]]
+token = 10
+name = 'DisplayName'
+
+[[tags]]
+token = 11
+name = 'EmailAddress'
+
+[[tags]]
+token = 12
+name = 'Certificates'
+
+[[tags]]
+token = 13
+name = 'Certificate'
+
+[[tags]]
+token = 14
+name = 'MiniCertificate'
+
+[[tags]]
+token = 15
+name = 'Options'
+
+[[tags]]
+token = 16
+name = 'To'
+
+[[tags]]
+token = 17
+name = 'CertificateRetrieval'
+
+[[tags]]
+token = 18
+name = 'RecipientCount'
+
+[[tags]]
+token = 19
+name = 'MaxCertificates'
+
+[[tags]]
+token = 20
+name = 'MaxAmbiguousRecipients'
+
+[[tags]]
+token = 21
+name = 'CertificateCount'
+
+[[tags]]
+token = 22
+name = 'Availability'
+
+[[tags]]
+token = 23
+name = 'StartTime'
+
+[[tags]]
+token = 24
+name = 'EndTime'
+
+[[tags]]
+token = 25
+name = 'MergedFreeBusy'
+
+[[tags]]
+token = 26
+name = 'Picture'
+
+[[tags]]
+token = 27
+name = 'MaxSize'
+
+[[tags]]
+token = 28
+name = 'Data'
+
+[[tags]]
+token = 29
+name = 'MaxPictures'

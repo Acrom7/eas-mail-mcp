@@ -1,0 +1,156 @@
+use base64::Engine as _;
+
+use crate::wbxml::{decode, encode};
+use crate::{EasError, ItemResult, Result, SearchMail};
+
+use super::sync::parse_mail_fields;
+use super::tree::{descendant_text, direct_text, element, integer, push_text};
+
+/// Builds a server-side mailbox Search request with a 500-character plain preview.
+pub fn build_search(
+    query: &str,
+    start: usize,
+    limit: usize,
+    preview_size: usize,
+) -> Result<Vec<u8>> {
+    if query.trim().is_empty() || limit == 0 || limit > 100 {
+        return Err(EasError::InvalidConfiguration(
+            "search query must be non-empty and limit must be 1-100".into(),
+        ));
+    }
+    let end = start.saturating_add(limit).saturating_sub(1);
+    let mut root = element("Search", "Search");
+    let mut store = element("Search", "Store");
+    push_text(&mut store, "Search", "Name", "Mailbox");
+    let mut query_element = element("Search", "Query");
+    let mut conjunction = element("Search", "And");
+    push_text(&mut conjunction, "AirSync", "Class", "Email");
+    push_text(&mut conjunction, "Search", "FreeText", query);
+    query_element.push(conjunction);
+    store.push(query_element);
+    let mut options = element("Search", "Options");
+    push_text(&mut options, "Search", "Range", format!("{start}-{end}"));
+    options.push(element("Search", "DeepTraversal"));
+    let mut preference = element("AirSyncBase", "BodyPreference");
+    push_text(&mut preference, "AirSyncBase", "Type", "1");
+    push_text(&mut preference, "AirSyncBase", "TruncationSize", preview_size.min(500).to_string());
+    options.push(preference);
+    store.push(options);
+    root.push(store);
+    encode(&root)
+}
+
+/// Parses ordered server-side mail search results.
+pub fn parse_search(data: &[u8]) -> Result<Vec<SearchMail>> {
+    let Some(root) = decode(data)? else {
+        return Ok(Vec::new());
+    };
+    let status = integer(descendant_text(&root, "Search", "Status"), 0);
+    if status != 1 {
+        return Err(EasError::Protocol(format!("Search status is {status}")));
+    }
+    let mut output = Vec::new();
+    for result in root.descendants("Search", "Result") {
+        let long_id = direct_text(result, "Search", "LongId").unwrap_or_default();
+        if let Some(properties) = result.child("Search", "Properties")
+            && !long_id.is_empty()
+        {
+            output.push(SearchMail { long_id, fields: parse_mail_fields(properties) });
+        }
+    }
+    Ok(output)
+}
+
+/// Builds an ItemOperations fetch by LongId or collection/server IDs.
+pub fn build_item_fetch(
+    long_id: Option<&str>,
+    collection_id: Option<&str>,
+    server_id: Option<&str>,
+    truncation_size: usize,
+) -> Result<Vec<u8>> {
+    let mut root = element("ItemOperations", "ItemOperations");
+    let mut fetch = element("ItemOperations", "Fetch");
+    push_text(&mut fetch, "ItemOperations", "Store", "Mailbox");
+    match (long_id, collection_id, server_id) {
+        (Some(long_id), _, _) if !long_id.is_empty() => {
+            push_text(&mut fetch, "Search", "LongId", long_id);
+        }
+        (None, Some(collection), Some(server)) if !collection.is_empty() && !server.is_empty() => {
+            push_text(&mut fetch, "AirSync", "CollectionId", collection);
+            push_text(&mut fetch, "AirSync", "ServerId", server);
+        }
+        _ => {
+            return Err(EasError::InvalidConfiguration(
+                "item fetch requires LongId or collection/server IDs".into(),
+            ));
+        }
+    }
+    let mut options = element("ItemOperations", "Options");
+    let mut preference = element("AirSyncBase", "BodyPreference");
+    push_text(&mut preference, "AirSyncBase", "Type", "1");
+    push_text(
+        &mut preference,
+        "AirSyncBase",
+        "TruncationSize",
+        truncation_size.min(50_000).to_string(),
+    );
+    push_text(&mut preference, "AirSyncBase", "AllOrNone", "0");
+    options.push(preference);
+    fetch.push(options);
+    root.push(fetch);
+    encode(&root)
+}
+
+/// Parses a full ItemOperations mail result.
+pub fn parse_item_fetch(data: &[u8]) -> Result<ItemResult> {
+    let root = decode(data)?
+        .ok_or_else(|| EasError::Protocol("Exchange returned an empty ItemOperations".into()))?;
+    let fetch = root
+        .descendant("ItemOperations", "Fetch")
+        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Fetch".into()))?;
+    let status = integer(direct_text(fetch, "ItemOperations", "Status"), 0);
+    if status != 1 {
+        return Err(EasError::Protocol(format!("ItemOperations status is {status}")));
+    }
+    let properties = fetch
+        .child("ItemOperations", "Properties")
+        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Properties".into()))?;
+    Ok(ItemResult { fields: parse_mail_fields(properties) })
+}
+
+/// Builds an on-demand attachment fetch.
+pub fn build_attachment_fetch(file_reference: &str) -> Result<Vec<u8>> {
+    if file_reference.is_empty() {
+        return Err(EasError::InvalidConfiguration("attachment reference is empty".into()));
+    }
+    let mut root = element("ItemOperations", "ItemOperations");
+    let mut fetch = element("ItemOperations", "Fetch");
+    push_text(&mut fetch, "ItemOperations", "Store", "Mailbox");
+    push_text(&mut fetch, "AirSyncBase", "FileReference", file_reference);
+    root.push(fetch);
+    encode(&root)
+}
+
+/// Parses raw or base64 attachment data from ItemOperations.
+pub fn parse_attachment_fetch(data: &[u8]) -> Result<Vec<u8>> {
+    let root = decode(data)?.ok_or_else(|| {
+        EasError::Protocol("Exchange returned an empty attachment response".into())
+    })?;
+    let fetch = root
+        .descendant("ItemOperations", "Fetch")
+        .ok_or_else(|| EasError::Protocol("attachment response has no Fetch".into()))?;
+    let status = integer(direct_text(fetch, "ItemOperations", "Status"), 0);
+    if status != 1 {
+        return Err(EasError::Protocol(format!("attachment fetch status is {status}")));
+    }
+    let value = root
+        .descendant("ItemOperations", "Data")
+        .or_else(|| root.descendant("AirSyncBase", "Data"))
+        .ok_or_else(|| EasError::Protocol("attachment data is missing".into()))?;
+    if let Some(opaque) = value.opaque_content() {
+        return Ok(opaque.to_vec());
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(value.text_content())
+        .map_err(|_| EasError::Protocol("attachment data is not valid base64".into()))
+}

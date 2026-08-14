@@ -1,0 +1,9 @@
+request_xml = "request.xml"
+request_wbxml = "request.wbxml"
+response_xml = "response.xml"
+response_wbxml = "response.wbxml"
+
+[[opaque]]
+document = "request"
+marker = "__MIME_PAYLOAD__"
+file = "mime.bin"

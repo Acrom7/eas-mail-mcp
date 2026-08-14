@@ -1,0 +1,219 @@
+page = 14
+namespace = 'Provision'
+xmlns = 'provision'
+
+[[tags]]
+token = 5
+name = 'Provision'
+
+[[tags]]
+token = 6
+name = 'Policies'
+
+[[tags]]
+token = 7
+name = 'Policy'
+
+[[tags]]
+token = 8
+name = 'PolicyType'
+
+[[tags]]
+token = 9
+name = 'PolicyKey'
+
+[[tags]]
+token = 10
+name = 'Data'
+
+[[tags]]
+token = 11
+name = 'Status'
+
+[[tags]]
+token = 12
+name = 'RemoteWipe'
+
+[[tags]]
+token = 13
+name = 'EASProvisionDoc'
+
+[[tags]]
+token = 14
+name = 'DevicePasswordEnabled'
+
+[[tags]]
+token = 15
+name = 'AlphanumericDevicePasswordRequired'
+
+[[tags]]
+token = 16
+name = 'RequireStorageCardEncryption'
+
+[[tags]]
+token = 17
+name = 'PasswordRecoveryEnabled'
+
+[[tags]]
+token = 19
+name = 'AttachmentsEnabled'
+
+[[tags]]
+token = 20
+name = 'MinDevicePasswordLength'
+
+[[tags]]
+token = 21
+name = 'MaxInactivityTimeDeviceLock'
+
+[[tags]]
+token = 22
+name = 'MaxDevicePasswordFailedAttempts'
+
+[[tags]]
+token = 23
+name = 'MaxAttachmentSize'
+
+[[tags]]
+token = 24
+name = 'AllowSimpleDevicePassword'
+
+[[tags]]
+token = 25
+name = 'DevicePasswordExpiration'
+
+[[tags]]
+token = 26
+name = 'DevicePasswordHistory'
+
+[[tags]]
+token = 27
+name = 'AllowStorageCard'
+
+[[tags]]
+token = 28
+name = 'AllowCamera'
+
+[[tags]]
+token = 29
+name = 'RequireDeviceEncryption'
+
+[[tags]]
+token = 30
+name = 'AllowUnsignedApplications'
+
+[[tags]]
+token = 31
+name = 'AllowUnsignedInstallationPackages'
+
+[[tags]]
+token = 32
+name = 'MinDevicePasswordComplexCharacters'
+
+[[tags]]
+token = 33
+name = 'AllowWiFi'
+
+[[tags]]
+token = 34
+name = 'AllowTextMessaging'
+
+[[tags]]
+token = 35
+name = 'AllowPOPIMAPEmail'
+
+[[tags]]
+token = 36
+name = 'AllowBluetooth'
+
+[[tags]]
+token = 37
+name = 'AllowIrDA'
+
+[[tags]]
+token = 38
+name = 'RequireManualSyncWhenRoaming'
+
+[[tags]]
+token = 39
+name = 'AllowDesktopSync'
+
+[[tags]]
+token = 40
+name = 'MaxCalendarAgeFilter'
+
+[[tags]]
+token = 41
+name = 'AllowHTMLEmail'
+
+[[tags]]
+token = 42
+name = 'MaxEmailAgeFilter'
+
+[[tags]]
+token = 43
+name = 'MaxEmailBodyTruncationSize'
+
+[[tags]]
+token = 44
+name = 'MaxEmailHTMLBodyTruncationSize'
+
+[[tags]]
+token = 45
+name = 'RequireSignedSMIMEMessages'
+
+[[tags]]
+token = 46
+name = 'RequireEncryptedSMIMEMessages'
+
+[[tags]]
+token = 47
+name = 'RequireSignedSMIMEAlgorithm'
+
+[[tags]]
+token = 48
+name = 'RequireEncryptionSMIMEAlgorithm'
+
+[[tags]]
+token = 49
+name = 'AllowSMIMEEncryptionAlgorithmNegotiation'
+
+[[tags]]
+token = 50
+name = 'AllowSMIMESoftCerts'
+
+[[tags]]
+token = 51
+name = 'AllowBrowser'
+
+[[tags]]
+token = 52
+name = 'AllowConsumerEmail'
+
+[[tags]]
+token = 53
+name = 'AllowRemoteDesktop'
+
+[[tags]]
+token = 54
+name = 'AllowInternetSharing'
+
+[[tags]]
+token = 55
+name = 'UnapprovedInROMApplicationList'
+
+[[tags]]
+token = 56
+name = 'ApplicationName'
+
+[[tags]]
+token = 57
+name = 'ApprovedApplicationList'
+
+[[tags]]
+token = 58
+name = 'Hash'
+
+[[tags]]
+token = 59
+name = 'AccountOnlyRemoteWipe'

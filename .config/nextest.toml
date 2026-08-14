@@ -1,0 +1,13 @@
+[profile.default]
+retries = 0
+flaky-result = "fail"
+leak-timeout = "1s"
+slow-timeout = { period = "10s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+filter = "test(/black_box/)"
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+filter = "kind(test)"
+slow-timeout = { period = "30s", terminate-after = 2 }

@@ -1,0 +1,135 @@
+page = 0
+namespace = 'AirSync'
+xmlns = 'airsync'
+
+[[tags]]
+token = 5
+name = 'Sync'
+
+[[tags]]
+token = 6
+name = 'Responses'
+
+[[tags]]
+token = 7
+name = 'Add'
+
+[[tags]]
+token = 8
+name = 'Change'
+
+[[tags]]
+token = 9
+name = 'Delete'
+
+[[tags]]
+token = 10
+name = 'Fetch'
+
+[[tags]]
+token = 11
+name = 'SyncKey'
+
+[[tags]]
+token = 12
+name = 'ClientId'
+
+[[tags]]
+token = 13
+name = 'ServerId'
+
+[[tags]]
+token = 14
+name = 'Status'
+
+[[tags]]
+token = 15
+name = 'Collection'
+
+[[tags]]
+token = 16
+name = 'Class'
+
+[[tags]]
+token = 18
+name = 'CollectionId'
+
+[[tags]]
+token = 19
+name = 'GetChanges'
+
+[[tags]]
+token = 20
+name = 'MoreAvailable'
+
+[[tags]]
+token = 21
+name = 'WindowSize'
+
+[[tags]]
+token = 22
+name = 'Commands'
+
+[[tags]]
+token = 23
+name = 'Options'
+
+[[tags]]
+token = 24
+name = 'FilterType'
+
+[[tags]]
+token = 27
+name = 'Conflict'
+
+[[tags]]
+token = 28
+name = 'Collections'
+
+[[tags]]
+token = 29
+name = 'ApplicationData'
+
+[[tags]]
+token = 30
+name = 'DeletesAsMoves'
+
+[[tags]]
+token = 32
+name = 'Supported'
+
+[[tags]]
+token = 33
+name = 'SoftDelete'
+
+[[tags]]
+token = 34
+name = 'MIMESupport'
+
+[[tags]]
+token = 35
+name = 'MIMETruncation'
+
+[[tags]]
+token = 36
+name = 'Wait'
+
+[[tags]]
+token = 37
+name = 'Limit'
+
+[[tags]]
+token = 38
+name = 'Partial'
+
+[[tags]]
+token = 39
+name = 'ConversationMode'
+
+[[tags]]
+token = 40
+name = 'MaxItems'
+
+[[tags]]
+token = 41
+name = 'HeartbeatInterval'

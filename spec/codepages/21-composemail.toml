@@ -1,0 +1,59 @@
+page = 21
+namespace = 'ComposeMail'
+xmlns = 'composemail'
+
+[[tags]]
+token = 5
+name = 'SendMail'
+
+[[tags]]
+token = 6
+name = 'SmartForward'
+
+[[tags]]
+token = 7
+name = 'SmartReply'
+
+[[tags]]
+token = 8
+name = 'SaveInSentItems'
+
+[[tags]]
+token = 9
+name = 'ReplaceMime'
+
+[[tags]]
+token = 11
+name = 'Source'
+
+[[tags]]
+token = 12
+name = 'FolderId'
+
+[[tags]]
+token = 13
+name = 'ItemId'
+
+[[tags]]
+token = 14
+name = 'LongId'
+
+[[tags]]
+token = 15
+name = 'InstanceId'
+
+[[tags]]
+token = 16
+name = 'Mime'
+
+[[tags]]
+token = 17
+name = 'ClientId'
+
+[[tags]]
+token = 18
+name = 'Status'
+
+[[tags]]
+token = 19
+name = 'AccountId'

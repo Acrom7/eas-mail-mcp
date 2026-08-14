@@ -1,0 +1,43 @@
+page = 6
+namespace = 'GetItemEstimate'
+xmlns = 'getitemestimate'
+
+[[tags]]
+token = 5
+name = 'GetItemEstimate'
+
+[[tags]]
+token = 6
+name = 'Version'
+
+[[tags]]
+token = 7
+name = 'Collections'
+
+[[tags]]
+token = 8
+name = 'Collection'
+
+[[tags]]
+token = 9
+name = 'Class'
+
+[[tags]]
+token = 10
+name = 'CollectionId'
+
+[[tags]]
+token = 11
+name = 'DateTime'
+
+[[tags]]
+token = 12
+name = 'Estimate'
+
+[[tags]]
+token = 13
+name = 'Response'
+
+[[tags]]
+token = 14
+name = 'Status'

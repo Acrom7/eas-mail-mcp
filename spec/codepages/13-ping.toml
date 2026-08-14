@@ -1,0 +1,39 @@
+page = 13
+namespace = 'Ping'
+xmlns = 'ping'
+
+[[tags]]
+token = 5
+name = 'Ping'
+
+[[tags]]
+token = 6
+name = 'AutdState'
+
+[[tags]]
+token = 7
+name = 'Status'
+
+[[tags]]
+token = 8
+name = 'HeartbeatInterval'
+
+[[tags]]
+token = 9
+name = 'Folders'
+
+[[tags]]
+token = 10
+name = 'Folder'
+
+[[tags]]
+token = 11
+name = 'Id'
+
+[[tags]]
+token = 12
+name = 'Class'
+
+[[tags]]
+token = 13
+name = 'MaxFolders'

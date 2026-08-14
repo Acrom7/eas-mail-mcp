@@ -1,0 +1,111 @@
+page = 15
+namespace = 'Search'
+xmlns = 'search'
+
+[[tags]]
+token = 5
+name = 'Search'
+
+[[tags]]
+token = 7
+name = 'Store'
+
+[[tags]]
+token = 8
+name = 'Name'
+
+[[tags]]
+token = 9
+name = 'Query'
+
+[[tags]]
+token = 10
+name = 'Options'
+
+[[tags]]
+token = 11
+name = 'Range'
+
+[[tags]]
+token = 12
+name = 'Status'
+
+[[tags]]
+token = 13
+name = 'Response'
+
+[[tags]]
+token = 14
+name = 'Result'
+
+[[tags]]
+token = 15
+name = 'Properties'
+
+[[tags]]
+token = 16
+name = 'Total'
+
+[[tags]]
+token = 17
+name = 'EqualTo'
+
+[[tags]]
+token = 18
+name = 'Value'
+
+[[tags]]
+token = 19
+name = 'And'
+
+[[tags]]
+token = 20
+name = 'Or'
+
+[[tags]]
+token = 21
+name = 'FreeText'
+
+[[tags]]
+token = 23
+name = 'DeepTraversal'
+
+[[tags]]
+token = 24
+name = 'LongId'
+
+[[tags]]
+token = 25
+name = 'RebuildResults'
+
+[[tags]]
+token = 26
+name = 'LessThan'
+
+[[tags]]
+token = 27
+name = 'GreaterThan'
+
+[[tags]]
+token = 30
+name = 'UserName'
+
+[[tags]]
+token = 31
+name = 'Password'
+
+[[tags]]
+token = 32
+name = 'ConversationId'
+
+[[tags]]
+token = 33
+name = 'Picture'
+
+[[tags]]
+token = 34
+name = 'MaxSize'
+
+[[tags]]
+token = 35
+name = 'MaxPictures'

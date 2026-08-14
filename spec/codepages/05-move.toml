@@ -1,0 +1,35 @@
+page = 5
+namespace = 'Move'
+xmlns = 'move'
+
+[[tags]]
+token = 5
+name = 'MoveItems'
+
+[[tags]]
+token = 6
+name = 'Move'
+
+[[tags]]
+token = 7
+name = 'SrcMsgId'
+
+[[tags]]
+token = 8
+name = 'SrcFldId'
+
+[[tags]]
+token = 9
+name = 'DstFldId'
+
+[[tags]]
+token = 10
+name = 'Response'
+
+[[tags]]
+token = 11
+name = 'Status'
+
+[[tags]]
+token = 12
+name = 'DstMsgId'

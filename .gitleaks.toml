@@ -1,0 +1,12 @@
+title = "EAS Mail MCP"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated artifacts and deterministic protocol fixtures"
+paths = [
+  '''(^|/)target/''',
+  '''(^|/)diagnostics/''',
+  '''(^|/)dist/''',
+]

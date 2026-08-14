@@ -1,0 +1,35 @@
+page = 19
+namespace = 'DocumentLibrary'
+xmlns = 'documentlibrary'
+
+[[tags]]
+token = 5
+name = 'LinkId'
+
+[[tags]]
+token = 6
+name = 'DisplayName'
+
+[[tags]]
+token = 7
+name = 'IsFolder'
+
+[[tags]]
+token = 8
+name = 'CreationDate'
+
+[[tags]]
+token = 9
+name = 'LastModifiedDate'
+
+[[tags]]
+token = 10
+name = 'IsHidden'
+
+[[tags]]
+token = 11
+name = 'ContentLength'
+
+[[tags]]
+token = 12
+name = 'ContentType'

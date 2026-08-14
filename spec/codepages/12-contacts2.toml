@@ -1,0 +1,43 @@
+page = 12
+namespace = 'Contacts2'
+xmlns = 'contacts2'
+
+[[tags]]
+token = 5
+name = 'CustomerId'
+
+[[tags]]
+token = 6
+name = 'GovernmentId'
+
+[[tags]]
+token = 7
+name = 'IMAddress'
+
+[[tags]]
+token = 8
+name = 'IMAddress2'
+
+[[tags]]
+token = 9
+name = 'IMAddress3'
+
+[[tags]]
+token = 10
+name = 'ManagerName'
+
+[[tags]]
+token = 11
+name = 'CompanyMainPhone'
+
+[[tags]]
+token = 12
+name = 'AccountName'
+
+[[tags]]
+token = 13
+name = 'NickName'
+
+[[tags]]
+token = 14
+name = 'MMS'

@@ -1,0 +1,59 @@
+page = 16
+namespace = 'GAL'
+xmlns = 'gal'
+
+[[tags]]
+token = 5
+name = 'DisplayName'
+
+[[tags]]
+token = 6
+name = 'Phone'
+
+[[tags]]
+token = 7
+name = 'Office'
+
+[[tags]]
+token = 8
+name = 'Title'
+
+[[tags]]
+token = 9
+name = 'Company'
+
+[[tags]]
+token = 10
+name = 'Alias'
+
+[[tags]]
+token = 11
+name = 'FirstName'
+
+[[tags]]
+token = 12
+name = 'LastName'
+
+[[tags]]
+token = 13
+name = 'HomePhone'
+
+[[tags]]
+token = 14
+name = 'MobilePhone'
+
+[[tags]]
+token = 15
+name = 'EmailAddress'
+
+[[tags]]
+token = 16
+name = 'Picture'
+
+[[tags]]
+token = 17
+name = 'Status'
+
+[[tags]]
+token = 18
+name = 'Data'

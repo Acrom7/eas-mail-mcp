@@ -1,0 +1,206 @@
+mod smoke;
+
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, Result};
+use sha2::{Digest as _, Sha256};
+
+use crate::command::{output, run, run_env};
+use crate::profile;
+
+const BINARY: &str = "eas-mail-mcp";
+const MACOS_DEPLOYMENT_TARGET: &str = "14.0";
+const MAX_BINARY_BYTES: u64 = 20 * 1024 * 1024;
+
+pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
+    let profile = profile::verify(root, profile_path, true)?;
+    let profile_source = profile.source.to_string_lossy().into_owned();
+    let rustflags = remap_flags(root)?;
+    let dist = root.join("dist");
+    if dist.exists() {
+        fs::remove_dir_all(&dist)?;
+    }
+    fs::create_dir_all(&dist)?;
+    for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"] {
+        run_env(
+            root,
+            "cargo",
+            ["build", "--release", "--locked", "--target", target, "--package", BINARY],
+            &[
+                ("MACOSX_DEPLOYMENT_TARGET", MACOS_DEPLOYMENT_TARGET),
+                ("EAS_MAIL_PROFILE_BUNDLE", &profile_source),
+                ("RUSTFLAGS", &rustflags),
+            ],
+        )?;
+        let bundle = create_bundle(root, &dist, target, &profile)?;
+        smoke::verify(&dist, &bundle, target)?;
+        archive(&dist, &bundle)?;
+    }
+    Ok(())
+}
+
+fn create_bundle(
+    root: &Path,
+    dist: &Path,
+    target: &str,
+    profile: &eas_mail_profile::VerifiedBundle,
+) -> Result<PathBuf> {
+    let name = format!("{BINARY}-{}-{target}", env!("CARGO_PKG_VERSION"));
+    let bundle = dist.join(&name);
+    fs::create_dir_all(bundle.join("bin"))?;
+    let source = root.join("target").join(target).join("release").join(BINARY);
+    let destination = bundle.join("bin").join(BINARY);
+    fs::copy(&source, &destination).with_context(|| format!("cannot copy {}", source.display()))?;
+    make_executable(&destination)?;
+    verify_binary_strings(root, &destination, profile)?;
+    sign_macho(&bundle, &destination)?;
+    verify_macho(&bundle, &destination, target)?;
+    let size = fs::metadata(&destination)?.len();
+    anyhow::ensure!(
+        size <= MAX_BINARY_BYTES,
+        "stripped {target} binary is {size} bytes; limit is {MAX_BINARY_BYTES}"
+    );
+    fs::copy(root.join("scripts/install.sh"), bundle.join("install.sh"))?;
+    fs::copy(root.join("scripts/uninstall.sh"), bundle.join("uninstall.sh"))?;
+    fs::copy(root.join("docs/installation.ru.md"), bundle.join("installation.ru.md"))?;
+    fs::write(bundle.join("TARGET_ARCH"), target_arch(target))?;
+    write_build_metadata(root, &bundle, &destination, target, profile)?;
+    make_executable(&bundle.join("install.sh"))?;
+    make_executable(&bundle.join("uninstall.sh"))?;
+    write_manifest(&bundle)?;
+    Ok(bundle)
+}
+
+fn archive(dist: &Path, bundle: &Path) -> Result<()> {
+    let name = bundle.file_name().ok_or_else(|| anyhow::anyhow!("bundle name is missing"))?;
+    let archive = dist.join(format!("{}.tar.gz", name.to_string_lossy()));
+    let arguments =
+        [std::ffi::OsString::from("-czf"), archive.as_os_str().to_owned(), name.to_owned()];
+    run_env(dist, "tar", arguments, &[("COPYFILE_DISABLE", "1")])?;
+    let digest = digest(&archive)?;
+    let archive_name =
+        archive.file_name().ok_or_else(|| anyhow::anyhow!("archive name missing"))?;
+    fs::write(
+        PathBuf::from(format!("{}.sha256", archive.to_string_lossy())),
+        format!("{digest}  {}\n", archive_name.to_string_lossy()),
+    )?;
+    Ok(())
+}
+
+fn write_manifest(bundle: &Path) -> Result<()> {
+    let mut files = vec![
+        PathBuf::from("TARGET_ARCH"),
+        PathBuf::from("BUILD-METADATA.json"),
+        PathBuf::from("bin").join(BINARY),
+        PathBuf::from("install.sh"),
+        PathBuf::from("installation.ru.md"),
+        PathBuf::from("uninstall.sh"),
+    ];
+    files.sort();
+    let mut manifest = String::new();
+    for relative in files {
+        writeln!(manifest, "{}  {}", digest(&bundle.join(&relative))?, relative.display())?;
+    }
+    fs::write(bundle.join("SHA256SUMS"), manifest)?;
+    Ok(())
+}
+
+fn digest(path: &Path) -> Result<String> {
+    Ok(Sha256::digest(fs::read(path)?).iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn sign_macho(root: &Path, binary: &Path) -> Result<()> {
+    let binary = binary.to_string_lossy();
+    run(root, "codesign", ["--force", "--sign", "-", "--timestamp=none", binary.as_ref()])
+}
+
+fn verify_macho(root: &Path, binary: &Path, target: &str) -> Result<()> {
+    let binary = binary.to_string_lossy();
+    output(root, "codesign", ["--verify", "--strict", binary.as_ref()])?;
+    let architectures = output(root, "lipo", ["-archs", binary.as_ref()])?;
+    anyhow::ensure!(
+        architectures.trim() == target_arch(target).trim(),
+        "{target} bundle contains unexpected architecture: {}",
+        architectures.trim()
+    );
+    let load_commands = output(root, "otool", ["-l", binary.as_ref()])?;
+    anyhow::ensure!(
+        load_commands.lines().any(|line| line.trim() == "minos 14.0"),
+        "{target} bundle does not target macOS {MACOS_DEPLOYMENT_TARGET}"
+    );
+    Ok(())
+}
+
+fn target_arch(target: &str) -> &'static str {
+    if target.starts_with("aarch64") { "arm64\n" } else { "x86_64\n" }
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_executable(_: &Path) -> Result<()> {
+    anyhow::bail!("bundle delivery supports macOS only")
+}
+
+fn remap_flags(root: &Path) -> Result<String> {
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
+        .ok_or_else(|| anyhow::anyhow!("cannot determine Cargo home for path remapping"))?;
+    Ok(format!(
+        "--remap-path-prefix={}=/workspace --remap-path-prefix={}=/cargo",
+        root.display(),
+        cargo_home.display()
+    ))
+}
+
+fn verify_binary_strings(
+    root: &Path,
+    binary: &Path,
+    profile: &eas_mail_profile::VerifiedBundle,
+) -> Result<()> {
+    let binary_text = output(root, "strings", [binary.as_os_str()])?;
+    let forbidden =
+        [root.to_string_lossy().into_owned(), ["/", "Users", "/"].concat(), "/private/tmp/".into()];
+    for marker in forbidden {
+        anyhow::ensure!(!binary_text.contains(&marker), "release binary leaks a local build path");
+    }
+    anyhow::ensure!(
+        binary_text.contains(&profile.hash),
+        "release binary does not expose its profile bundle hash"
+    );
+    anyhow::ensure!(
+        binary_text.contains(&profile.manifest.bundle_version),
+        "release binary does not expose its profile bundle version"
+    );
+    Ok(())
+}
+
+fn write_build_metadata(
+    root: &Path,
+    bundle: &Path,
+    binary: &Path,
+    target: &str,
+    profile: &eas_mail_profile::VerifiedBundle,
+) -> Result<()> {
+    let source_sha = output(root, "git", ["rev-parse", "HEAD"])?;
+    let document = serde_json::json!({
+        "source_sha": source_sha.trim(),
+        "target": target,
+        "profile_bundle_version": profile.manifest.bundle_version,
+        "profile_bundle_sha256": profile.hash,
+        "artifact_sha256": digest(binary)?,
+    });
+    fs::write(
+        bundle.join("BUILD-METADATA.json"),
+        format!("{}\n", serde_json::to_string_pretty(&document)?),
+    )?;
+    Ok(())
+}

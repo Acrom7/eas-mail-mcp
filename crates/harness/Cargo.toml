@@ -1,0 +1,74 @@
+[package]
+name = "eas-mail-mcp-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autobins = false
+
+[features]
+default = []
+live = []
+performance = []
+soak = []
+
+[[bin]]
+name = "harness-server"
+path = "src/bin/harness-server.rs"
+test = false
+
+[[bin]]
+name = "direct-live-harness"
+path = "src/bin/direct-live-harness.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
+name = "eas-live-probe"
+path = "src/bin/eas-live-probe.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
+name = "live-harness"
+path = "src/bin/live-harness.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
+name = "perf-harness"
+path = "src/bin/perf-harness.rs"
+required-features = ["performance"]
+test = false
+
+[[bin]]
+name = "perf-server"
+path = "src/bin/perf-server.rs"
+required-features = ["performance"]
+test = false
+
+[[bin]]
+name = "soak-harness"
+path = "src/bin/soak-harness.rs"
+required-features = ["soak"]
+test = false
+
+[dependencies]
+eas-mail-protocol = { version = "0.1.0", path = "../eas" }
+eas-mail-mcp = { version = "0.1.0", path = "../app" }
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+clap.workspace = true
+rmcp = { workspace = true, features = ["client", "transport-child-process"] }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+toml.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

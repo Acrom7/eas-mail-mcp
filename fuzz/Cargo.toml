@@ -1,0 +1,29 @@
+[package]
+name = "eas-mail-mcp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+eas-mail-protocol = { version = "0.1.0", path = "../crates/eas" }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "wbxml_decode"
+path = "fuzz_targets/wbxml_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_parse"
+path = "fuzz_targets/sync_parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

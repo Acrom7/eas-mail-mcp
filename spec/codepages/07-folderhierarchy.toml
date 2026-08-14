@@ -1,0 +1,63 @@
+page = 7
+namespace = 'FolderHierarchy'
+xmlns = 'folderhierarchy'
+
+[[tags]]
+token = 7
+name = 'DisplayName'
+
+[[tags]]
+token = 8
+name = 'ServerId'
+
+[[tags]]
+token = 9
+name = 'ParentId'
+
+[[tags]]
+token = 10
+name = 'Type'
+
+[[tags]]
+token = 12
+name = 'Status'
+
+[[tags]]
+token = 14
+name = 'Changes'
+
+[[tags]]
+token = 15
+name = 'Add'
+
+[[tags]]
+token = 16
+name = 'Delete'
+
+[[tags]]
+token = 17
+name = 'Update'
+
+[[tags]]
+token = 18
+name = 'SyncKey'
+
+[[tags]]
+token = 19
+name = 'FolderCreate'
+
+[[tags]]
+token = 20
+name = 'FolderDelete'
+
+[[tags]]
+token = 21
+name = 'FolderUpdate'
+
+[[tags]]
+token = 22
+name = 'FolderSync'
+
+[[tags]]
+token = 23
+name = 'Count'

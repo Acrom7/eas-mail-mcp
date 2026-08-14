@@ -1,0 +1,219 @@
+page = 1
+namespace = 'POOMCONTACTS'
+xmlns = 'poomcontacts'
+
+[[tags]]
+token = 5
+name = 'Anniversary'
+
+[[tags]]
+token = 6
+name = 'AssistantName'
+
+[[tags]]
+token = 7
+name = 'AssistantPhoneNumber'
+
+[[tags]]
+token = 8
+name = 'Birthday'
+
+[[tags]]
+token = 12
+name = 'Business2PhoneNumber'
+
+[[tags]]
+token = 13
+name = 'BusinessAddressCity'
+
+[[tags]]
+token = 14
+name = 'BusinessAddressCountry'
+
+[[tags]]
+token = 15
+name = 'BusinessAddressPostalCode'
+
+[[tags]]
+token = 16
+name = 'BusinessAddressState'
+
+[[tags]]
+token = 17
+name = 'BusinessAddressStreet'
+
+[[tags]]
+token = 18
+name = 'BusinessFaxNumber'
+
+[[tags]]
+token = 19
+name = 'BusinessPhoneNumber'
+
+[[tags]]
+token = 20
+name = 'CarPhoneNumber'
+
+[[tags]]
+token = 21
+name = 'Categories'
+
+[[tags]]
+token = 22
+name = 'Category'
+
+[[tags]]
+token = 23
+name = 'Children'
+
+[[tags]]
+token = 24
+name = 'Child'
+
+[[tags]]
+token = 25
+name = 'CompanyName'
+
+[[tags]]
+token = 26
+name = 'Department'
+
+[[tags]]
+token = 27
+name = 'Email1Address'
+
+[[tags]]
+token = 28
+name = 'Email2Address'
+
+[[tags]]
+token = 29
+name = 'Email3Address'
+
+[[tags]]
+token = 30
+name = 'FileAs'
+
+[[tags]]
+token = 31
+name = 'FirstName'
+
+[[tags]]
+token = 32
+name = 'Home2PhoneNumber'
+
+[[tags]]
+token = 33
+name = 'HomeAddressCity'
+
+[[tags]]
+token = 34
+name = 'HomeAddressCountry'
+
+[[tags]]
+token = 35
+name = 'HomeAddressPostalCode'
+
+[[tags]]
+token = 36
+name = 'HomeAddressState'
+
+[[tags]]
+token = 37
+name = 'HomeAddressStreet'
+
+[[tags]]
+token = 38
+name = 'HomeFaxNumber'
+
+[[tags]]
+token = 39
+name = 'HomePhoneNumber'
+
+[[tags]]
+token = 40
+name = 'JobTitle'
+
+[[tags]]
+token = 41
+name = 'LastName'
+
+[[tags]]
+token = 42
+name = 'MiddleName'
+
+[[tags]]
+token = 43
+name = 'MobilePhoneNumber'
+
+[[tags]]
+token = 44
+name = 'OfficeLocation'
+
+[[tags]]
+token = 45
+name = 'OtherAddressCity'
+
+[[tags]]
+token = 46
+name = 'OtherAddressCountry'
+
+[[tags]]
+token = 47
+name = 'OtherAddressPostalCode'
+
+[[tags]]
+token = 48
+name = 'OtherAddressState'
+
+[[tags]]
+token = 49
+name = 'OtherAddressStreet'
+
+[[tags]]
+token = 50
+name = 'PagerNumber'
+
+[[tags]]
+token = 51
+name = 'RadioPhoneNumber'
+
+[[tags]]
+token = 52
+name = 'Spouse'
+
+[[tags]]
+token = 53
+name = 'Suffix'
+
+[[tags]]
+token = 54
+name = 'Title'
+
+[[tags]]
+token = 55
+name = 'WebPage'
+
+[[tags]]
+token = 56
+name = 'YomiCompanyName'
+
+[[tags]]
+token = 57
+name = 'YomiFirstName'
+
+[[tags]]
+token = 58
+name = 'YomiLastName'
+
+[[tags]]
+token = 60
+name = 'Picture'
+
+[[tags]]
+token = 61
+name = 'Alias'
+
+[[tags]]
+token = 62
+name = 'WeightedRank'

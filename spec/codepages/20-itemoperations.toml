@@ -1,0 +1,87 @@
+page = 20
+namespace = 'ItemOperations'
+xmlns = 'itemoperations'
+
+[[tags]]
+token = 5
+name = 'ItemOperations'
+
+[[tags]]
+token = 6
+name = 'Fetch'
+
+[[tags]]
+token = 7
+name = 'Store'
+
+[[tags]]
+token = 8
+name = 'Options'
+
+[[tags]]
+token = 9
+name = 'Range'
+
+[[tags]]
+token = 10
+name = 'Total'
+
+[[tags]]
+token = 11
+name = 'Properties'
+
+[[tags]]
+token = 12
+name = 'Data'
+
+[[tags]]
+token = 13
+name = 'Status'
+
+[[tags]]
+token = 14
+name = 'Response'
+
+[[tags]]
+token = 15
+name = 'Version'
+
+[[tags]]
+token = 16
+name = 'Schema'
+
+[[tags]]
+token = 17
+name = 'Part'
+
+[[tags]]
+token = 18
+name = 'EmptyFolderContents'
+
+[[tags]]
+token = 19
+name = 'DeleteSubFolders'
+
+[[tags]]
+token = 20
+name = 'UserName'
+
+[[tags]]
+token = 21
+name = 'Password'
+
+[[tags]]
+token = 22
+name = 'Move'
+
+[[tags]]
+token = 23
+name = 'DstFldId'
+
+[[tags]]
+token = 24
+name = 'ConversationId'
+
+[[tags]]
+token = 25
+name = 'MoveAlways'

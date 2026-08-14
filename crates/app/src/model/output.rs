@@ -1,0 +1,267 @@
+use chrono::{DateTime, Utc};
+use schemars::{JsonSchema, Schema};
+use serde::Serialize;
+use std::collections::BTreeMap;
+
+use crate::ErrorEnvelope;
+
+/// Account-scoped warning returned alongside partial results.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Warning {
+    /// Account that failed while others succeeded.
+    pub account_id: String,
+    /// Stable safe code.
+    pub code: String,
+    /// Safe warning text.
+    pub message: String,
+}
+
+/// Uniform structured MCP response.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ApiResponse<T> {
+    /// Successful typed payload.
+    pub data: Option<T>,
+    /// Fatal error when no result can be returned.
+    pub error: Option<ErrorEnvelope>,
+    /// Non-fatal per-account failures.
+    pub warnings: Vec<Warning>,
+}
+
+impl<T> ApiResponse<T> {
+    /// Constructs a successful response.
+    #[must_use]
+    pub fn success(data: T, warnings: Vec<Warning>) -> Self {
+        Self { data: Some(data), error: None, warnings }
+    }
+
+    /// Constructs a failed response.
+    #[must_use]
+    pub fn failure(error: ErrorEnvelope) -> Self {
+        Self { data: None, error: Some(error), warnings: Vec::new() }
+    }
+}
+
+/// One configured account visible to agents.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AccountStatus {
+    /// Stable local account ID.
+    pub account_id: String,
+    /// Fixed managed profile.
+    pub profile: String,
+    /// Mailbox address.
+    pub email: String,
+    /// Whether this account is enabled.
+    pub enabled: bool,
+    /// Current process-local status.
+    pub status: String,
+}
+
+/// Accounts response payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AccountsData {
+    /// Configured accounts.
+    pub accounts: Vec<AccountStatus>,
+}
+
+/// One Exchange folder.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FolderView {
+    /// Owning account ID.
+    pub account_id: String,
+    /// Exchange folder ID.
+    pub folder_id: String,
+    /// Display name supplied by Exchange.
+    pub display_name: String,
+    /// `mail`, `calendar`, or `other`.
+    pub kind: String,
+    /// Stable EAS folder role such as `inbox`, `sent`, or `user_mail`.
+    pub role: String,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Folders response payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FoldersData {
+    /// Exchange folders.
+    pub folders: Vec<FolderView>,
+}
+
+/// Process synchronization report.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SyncReport {
+    /// Account ID.
+    pub account_id: String,
+    /// Requested scope.
+    pub scope: String,
+    /// Collections synchronized.
+    #[schemars(transform = remove_numeric_format)]
+    pub collections_synced: usize,
+    /// Changes applied to RAM.
+    #[schemars(transform = remove_numeric_format)]
+    pub changes_applied: usize,
+    /// Completion time.
+    pub completed_at: DateTime<Utc>,
+}
+
+/// Synchronization response payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SyncData {
+    /// Per-account reports.
+    pub reports: Vec<SyncReport>,
+}
+
+/// Safe message summary.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MailSummary {
+    /// Process-local opaque reference.
+    pub mail_ref: String,
+    /// Owning account ID.
+    pub account_id: String,
+    /// Exchange folder ID.
+    pub folder_id: String,
+    /// Subject.
+    pub subject: String,
+    /// Sender.
+    pub sender: String,
+    /// Recipients.
+    pub recipients: String,
+    /// Receive time.
+    pub received_at: Option<DateTime<Utc>>,
+    /// Plain preview, maximum 500 characters.
+    pub preview: String,
+    /// Read state.
+    pub is_read: bool,
+    /// Whether attachments are present.
+    pub has_attachments: bool,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Paginated mail response payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MailPage {
+    /// Message summaries.
+    pub items: Vec<MailSummary>,
+    /// Cursor for the same immutable snapshot.
+    pub next_cursor: Option<String>,
+}
+
+/// On-demand full message body.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MailDetail {
+    /// Summary fields.
+    #[serde(flatten)]
+    pub summary: MailSummary,
+    /// Cc recipients.
+    pub cc: String,
+    /// Sanitized plain-text body.
+    pub body: String,
+    /// Whether Exchange or the application truncated the body.
+    pub body_truncated: bool,
+}
+
+/// Process-local attachment metadata.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AttachmentView {
+    /// Opaque attachment reference.
+    pub attachment_ref: String,
+    /// Owning account ID.
+    pub account_id: String,
+    /// Safe display name.
+    pub display_name: String,
+    /// Estimated size.
+    #[schemars(transform = remove_numeric_format)]
+    pub size: u64,
+    /// MIME type.
+    pub content_type: String,
+    /// Inline marker.
+    pub is_inline: bool,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Attachment metadata payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AttachmentsData {
+    /// Attachments on a message.
+    pub attachments: Vec<AttachmentView>,
+}
+
+/// Managed temporary attachment file.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AttachmentDownload {
+    /// Private temporary path.
+    pub path: String,
+    /// Expiry time; the process may delete the file sooner on shutdown.
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Read-only calendar event.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarEvent {
+    /// Process-local opaque reference.
+    pub event_ref: String,
+    /// Owning account ID.
+    pub account_id: String,
+    /// Exchange calendar folder ID.
+    pub folder_id: String,
+    /// Subject.
+    pub subject: String,
+    /// Sanitized plain-text body.
+    pub body: String,
+    /// Start time.
+    pub starts_at: Option<DateTime<Utc>>,
+    /// End time.
+    pub ends_at: Option<DateTime<Utc>>,
+    /// All-day marker.
+    pub all_day: bool,
+    /// Location.
+    pub location: String,
+    /// Organizer.
+    pub organizer: String,
+    /// Attendee addresses.
+    pub attendees: Vec<String>,
+    /// Recurrence fields from Exchange.
+    pub recurrence: BTreeMap<String, String>,
+    /// Recurrence exception fields.
+    pub exceptions: Vec<BTreeMap<String, String>>,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Paginated calendar response payload.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarPage {
+    /// Calendar events.
+    pub items: Vec<CalendarEvent>,
+    /// Cursor for the same immutable snapshot.
+    pub next_cursor: Option<String>,
+}
+
+fn remove_numeric_format(schema: &mut Schema) {
+    schema.remove("format");
+}
+
+/// Stable operation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationState {
+    /// Mutation completed successfully.
+    Succeeded,
+    /// Mutation was rejected before an ambiguous send.
+    Failed,
+    /// Mutation may have reached Exchange.
+    Unknown,
+}
+
+/// Idempotent mutation response.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OperationResult {
+    /// UUID supplied by the caller.
+    pub operation_id: String,
+    /// Final or unknown state.
+    pub status: OperationState,
+    /// Safe status text.
+    pub message: String,
+}

@@ -1,0 +1,21 @@
+[package]
+name = "eas-mail-profile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

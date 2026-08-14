@@ -1,0 +1,183 @@
+page = 2
+namespace = 'Email'
+xmlns = 'email'
+
+[[tags]]
+token = 15
+name = 'DateReceived'
+
+[[tags]]
+token = 17
+name = 'DisplayTo'
+
+[[tags]]
+token = 18
+name = 'Importance'
+
+[[tags]]
+token = 19
+name = 'MessageClass'
+
+[[tags]]
+token = 20
+name = 'Subject'
+
+[[tags]]
+token = 21
+name = 'Read'
+
+[[tags]]
+token = 22
+name = 'To'
+
+[[tags]]
+token = 23
+name = 'Cc'
+
+[[tags]]
+token = 24
+name = 'From'
+
+[[tags]]
+token = 25
+name = 'ReplyTo'
+
+[[tags]]
+token = 26
+name = 'AllDayEvent'
+
+[[tags]]
+token = 27
+name = 'Categories'
+
+[[tags]]
+token = 28
+name = 'Category'
+
+[[tags]]
+token = 29
+name = 'DtStamp'
+
+[[tags]]
+token = 30
+name = 'EndTime'
+
+[[tags]]
+token = 31
+name = 'InstanceType'
+
+[[tags]]
+token = 32
+name = 'BusyStatus'
+
+[[tags]]
+token = 33
+name = 'Location'
+
+[[tags]]
+token = 34
+name = 'MeetingRequest'
+
+[[tags]]
+token = 35
+name = 'Organizer'
+
+[[tags]]
+token = 36
+name = 'RecurrenceId'
+
+[[tags]]
+token = 37
+name = 'Reminder'
+
+[[tags]]
+token = 38
+name = 'ResponseRequested'
+
+[[tags]]
+token = 39
+name = 'Recurrences'
+
+[[tags]]
+token = 40
+name = 'Recurrence'
+
+[[tags]]
+token = 41
+name = 'Type'
+
+[[tags]]
+token = 42
+name = 'Until'
+
+[[tags]]
+token = 43
+name = 'Occurrences'
+
+[[tags]]
+token = 44
+name = 'Interval'
+
+[[tags]]
+token = 45
+name = 'DayOfWeek'
+
+[[tags]]
+token = 46
+name = 'DayOfMonth'
+
+[[tags]]
+token = 47
+name = 'WeekOfMonth'
+
+[[tags]]
+token = 48
+name = 'MonthOfYear'
+
+[[tags]]
+token = 49
+name = 'StartTime'
+
+[[tags]]
+token = 50
+name = 'Sensitivity'
+
+[[tags]]
+token = 51
+name = 'TimeZone'
+
+[[tags]]
+token = 52
+name = 'GlobalObjId'
+
+[[tags]]
+token = 53
+name = 'ThreadTopic'
+
+[[tags]]
+token = 57
+name = 'InternetCPID'
+
+[[tags]]
+token = 58
+name = 'Flag'
+
+[[tags]]
+token = 59
+name = 'Status'
+
+[[tags]]
+token = 60
+name = 'ContentClass'
+
+[[tags]]
+token = 61
+name = 'FlagType'
+
+[[tags]]
+token = 62
+name = 'CompleteTime'
+
+[[tags]]
+token = 63
+name = 'DisallowNewTimeProposal'
