@@ -45,8 +45,10 @@ existing binary.
 
 The process runs `OPTIONS`, `Provision`, and `FolderSync`, then synchronizes mail
 and calendar collections. Mail uses policy-capped `FilterType=5`; calendar uses
-policy-capped `FilterType=6`. Pages are consumed until `MoreAvailable`
-disappears, including empty intermediate pages.
+policy-capped `FilterType=6`. A default `mail_list` synchronizes Inbox and Sent;
+explicit `folder_ids` select other mail collections, and `sync_now` still
+refreshes every collection in its scope. Pages are consumed until
+`MoreAvailable` disappears, including empty intermediate pages.
 
 Each collection owns its SyncKey. An invalid key resets only that collection.
 `Add`, `Change`, `Delete`, and `SoftDelete` are applied in wire order. A missing

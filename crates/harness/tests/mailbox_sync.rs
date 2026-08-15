@@ -142,6 +142,57 @@ async fn independent_collections_sync_with_bounded_concurrency() -> anyhow::Resu
     Ok(())
 }
 
+#[tokio::test]
+async fn default_mail_list_syncs_only_inbox_and_sent() -> anyhow::Result<()> {
+    let calls = vec![
+        options(),
+        read(Command::FolderSync, build_folder_sync("0")?, three_mail_folders()?),
+        empty_mail_sync("inbox", "0", "inbox-1")?,
+        empty_mail_sync("sent", "0", "sent-1")?,
+        empty_mail_sync("inbox", "inbox-1", "inbox-2")?,
+        empty_mail_sync("sent", "sent-1", "sent-2")?,
+    ];
+    let (mailbox, transport) = mailbox(calls, default_policy())?;
+
+    assert!(mailbox.list_mail(None).await?.is_empty());
+    transport.verify_complete()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_mail_folder_syncs_only_that_collection() -> anyhow::Result<()> {
+    let calls = vec![
+        options(),
+        read(Command::FolderSync, build_folder_sync("0")?, three_mail_folders()?),
+        empty_mail_sync("archive", "0", "archive-1")?,
+        empty_mail_sync("archive", "archive-1", "archive-2")?,
+    ];
+    let (mailbox, transport) = mailbox(calls, default_policy())?;
+
+    assert!(mailbox.list_mail(Some(&["archive".into()])).await?.is_empty());
+    transport.verify_complete()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_sync_still_refreshes_every_mail_collection() -> anyhow::Result<()> {
+    let calls = vec![
+        options(),
+        read(Command::FolderSync, build_folder_sync("0")?, three_mail_folders()?),
+        empty_mail_sync("archive", "0", "archive-1")?,
+        empty_mail_sync("inbox", "0", "inbox-1")?,
+        empty_mail_sync("sent", "0", "sent-1")?,
+        empty_mail_sync("archive", "archive-1", "archive-2")?,
+        empty_mail_sync("inbox", "inbox-1", "inbox-2")?,
+        empty_mail_sync("sent", "sent-1", "sent-2")?,
+    ];
+    let (mailbox, transport) = mailbox(calls, default_policy())?;
+
+    assert_eq!(mailbox.sync(true, false).await?.collections, 3);
+    transport.verify_complete()?;
+    Ok(())
+}
+
 fn delayed_sync(
     folder_id: &str,
     sync_key: &str,
@@ -160,12 +211,43 @@ fn delayed_sync(
     })
 }
 
+fn empty_mail_sync(
+    folder_id: &str,
+    sync_key: &str,
+    response_key: &str,
+) -> anyhow::Result<ExpectedCall> {
+    Ok(read(
+        Command::Sync,
+        build_sync(folder_id, sync_key, CollectionKind::Mail, 5, 500)?,
+        sync_response(response_key, 1, false, Vec::new())?,
+    ))
+}
+
 fn two_mail_folders() -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("FolderHierarchy", "FolderSync");
     root.push(Element::text("FolderHierarchy", "Status", "1"));
     root.push(Element::text("FolderHierarchy", "SyncKey", "folders-1"));
     let mut changes = Element::new("FolderHierarchy", "Changes");
     for (server_id, display_name, folder_type) in [("inbox", "Inbox", "2"), ("sent", "Sent", "5")] {
+        let mut add = Element::new("FolderHierarchy", "Add");
+        add.push(Element::text("FolderHierarchy", "ServerId", server_id));
+        add.push(Element::text("FolderHierarchy", "ParentId", "0"));
+        add.push(Element::text("FolderHierarchy", "DisplayName", display_name));
+        add.push(Element::text("FolderHierarchy", "Type", folder_type));
+        changes.push(add);
+    }
+    root.push(changes);
+    encode(&root)
+}
+
+fn three_mail_folders() -> eas_mail_protocol::Result<Vec<u8>> {
+    let mut root = Element::new("FolderHierarchy", "FolderSync");
+    root.push(Element::text("FolderHierarchy", "Status", "1"));
+    root.push(Element::text("FolderHierarchy", "SyncKey", "folders-1"));
+    let mut changes = Element::new("FolderHierarchy", "Changes");
+    for (server_id, display_name, folder_type) in
+        [("archive", "Archive", "12"), ("inbox", "Inbox", "2"), ("sent", "Sent", "5")]
+    {
         let mut add = Element::new("FolderHierarchy", "Add");
         add.push(Element::text("FolderHierarchy", "ServerId", server_id));
         add.push(Element::text("FolderHierarchy", "ParentId", "0"));

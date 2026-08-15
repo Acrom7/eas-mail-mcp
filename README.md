@@ -27,6 +27,10 @@ Writes are disabled per account by default. Every write requires a UUID
 ambiguous network result. Passwords, Device IDs, policy state, and the journal
 HMAC key are stored in macOS Keychain.
 
+`mail_list` synchronizes Inbox and Sent when `folder_ids` is omitted. Other mail
+folders remain available through explicit `folder_ids`, while `sync_now` still
+refreshes every collection in the requested scope.
+
 ## Build the example
 
 Requirements are macOS 14+ and the Rust toolchain pinned in

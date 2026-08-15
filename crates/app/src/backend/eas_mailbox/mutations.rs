@@ -13,7 +13,7 @@ impl EasMailbox {
                 "read state requires a message returned by mail_list",
             ));
         };
-        self.sync_selected(true, false, false).await?;
+        self.sync_selected(true, false, false, Some(std::slice::from_ref(folder_id))).await?;
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
         let sync_key = state

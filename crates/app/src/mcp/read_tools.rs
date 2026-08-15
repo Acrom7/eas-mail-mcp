@@ -73,7 +73,7 @@ impl MailMcpServer {
         Json(self.runtime.sync_now(input).await)
     }
 
-    /// Lists at most 100 messages from a fresh network-backed snapshot.
+    /// Lists at most 100 messages from a fresh Inbox and Sent snapshot by default.
     #[tool(
         name = "mail_list",
         annotations(title = "List work mail", read_only_hint = true, open_world_hint = true)

@@ -179,12 +179,16 @@ impl AccountBackend for EasMailbox {
     }
 
     async fn sync(&self, mail: bool, calendar: bool) -> Result<BackendSync> {
-        self.sync_selected(mail, calendar, true).await
+        self.sync_selected(mail, calendar, true, None).await
     }
 
     async fn list_mail(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendMail>> {
-        self.sync_selected(true, false, false).await?;
-        self.mail_snapshot(folder_ids).await
+        let selected = match folder_ids {
+            Some(values) => values.to_vec(),
+            None => self.primary_mail_folder_ids().await?,
+        };
+        self.sync_selected(true, false, false, Some(&selected)).await?;
+        self.mail_snapshot(Some(&selected)).await
     }
 
     async fn search_mail(&self, query: &str, limit: usize) -> Result<Vec<BackendMail>> {
@@ -200,7 +204,7 @@ impl AccountBackend for EasMailbox {
     }
 
     async fn list_calendar(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendEvent>> {
-        self.sync_selected(false, true, false).await?;
+        self.sync_selected(false, true, false, None).await?;
         self.calendar_snapshot(folder_ids).await
     }
 

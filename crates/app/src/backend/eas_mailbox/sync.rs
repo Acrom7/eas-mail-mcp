@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use eas_mail_protocol::{
@@ -22,6 +23,27 @@ struct SyncRequest {
 }
 
 impl EasMailbox {
+    pub(super) async fn primary_mail_folder_ids(&self) -> Result<Vec<String>> {
+        if self.state.lock().await.folders.is_empty() {
+            self.refresh_folders().await?;
+        }
+        let state = self.state.lock().await;
+        let folder_ids = state
+            .folders
+            .values()
+            .filter(|folder| matches!(folder.folder_type, 2 | 5))
+            .map(|folder| folder.server_id.clone())
+            .collect::<Vec<_>>();
+        if folder_ids.is_empty() {
+            return Err(AppError::new(
+                ErrorCode::ProtocolError,
+                "Exchange returned no Inbox or Sent collection",
+            )
+            .account(&self.account.account_id));
+        }
+        Ok(folder_ids)
+    }
+
     pub(super) async fn refresh_folders(&self) -> Result<Vec<eas_mail_protocol::Folder>> {
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
@@ -52,6 +74,7 @@ impl EasMailbox {
         mail: bool,
         calendar: bool,
         refresh_folders: bool,
+        folder_ids: Option<&[String]>,
     ) -> Result<BackendSync> {
         if !mail && !calendar {
             return Ok(BackendSync { collections: 0, changes: 0 });
@@ -61,14 +84,19 @@ impl EasMailbox {
             self.refresh_folders().await?;
         }
         let mut state = self.state.lock().await;
+        let requested =
+            folder_ids.map(|values| values.iter().map(String::as_str).collect::<BTreeSet<_>>());
         let selected = state
             .folders
             .values()
             .filter_map(|folder| {
                 let kind = folder.kind?;
-                ((mail && kind == CollectionKind::Mail)
-                    || (calendar && kind == CollectionKind::Calendar))
-                    .then(|| (folder.server_id.clone(), kind))
+                let matches_kind = (mail && kind == CollectionKind::Mail)
+                    || (calendar && kind == CollectionKind::Calendar);
+                let requested = requested
+                    .as_ref()
+                    .is_none_or(|values| values.contains(folder.server_id.as_str()));
+                (matches_kind && requested).then(|| (folder.server_id.clone(), kind))
             })
             .collect::<Vec<_>>();
         let collection_count = selected.len();

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 CLIENTS=""
 REMOVE_QUARANTINE=0
 

@@ -1,6 +1,6 @@
 # Установка EAS Mail MCP
 
-Публичный `v0.1.0` распространяется только как исходный код. Готовый bundle для
+Публичный `v0.1.1` распространяется только как исходный код. Готовый bundle для
 реального сервера должен предоставить оператор, который собрал его с локальным
 build-time профилем и опубликовал SHA-256.
 
@@ -10,9 +10,9 @@ build-time профилем и опубликовал SHA-256.
 `x86_64-apple-darwin` для Intel. До распаковки проверьте внешний hash:
 
 ```bash
-shasum -a 256 -c eas-mail-mcp-0.1.0-<target>.tar.gz.sha256
-tar -xzf eas-mail-mcp-0.1.0-<target>.tar.gz
-cd eas-mail-mcp-0.1.0-<target>
+shasum -a 256 -c eas-mail-mcp-0.1.1-<target>.tar.gz.sha256
+tar -xzf eas-mail-mcp-0.1.1-<target>.tar.gz
+cd eas-mail-mcp-0.1.1-<target>
 cat BUILD-METADATA.json
 ./install.sh
 ```
@@ -58,12 +58,12 @@ eas-mail-mcp client configure opencode
 По умолчанию данные пользователя и Keychain сохраняются:
 
 ```bash
-~/.local/lib/eas-mail-mcp/0.1.0/share/uninstall.sh
+~/.local/lib/eas-mail-mcp/0.1.1/share/uninstall.sh
 ```
 
 Удалить также client entries и локальные данные:
 
 ```bash
-~/.local/lib/eas-mail-mcp/0.1.0/share/uninstall.sh \
+~/.local/lib/eas-mail-mcp/0.1.1/share/uninstall.sh \
   --clients codex,claude,opencode --delete-data
 ```

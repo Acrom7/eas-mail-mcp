@@ -39,7 +39,7 @@ pub struct SyncInput {
 pub struct MailListInput {
     /// Account IDs; omitted means all enabled accounts.
     pub account_ids: Option<Vec<String>>,
-    /// Optional folder IDs. Without a cursor these refer to Exchange folder IDs.
+    /// Optional Exchange folder IDs; omitted defaults to Inbox and Sent.
     pub folder_ids: Option<Vec<String>>,
     /// Opaque 15-minute snapshot cursor.
     pub cursor: Option<String>,
