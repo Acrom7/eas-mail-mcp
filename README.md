@@ -1,5 +1,7 @@
 # EAS Mail MCP
 
+![EAS Mail MCP connects mail and calendar data to local AI tools](docs/assets/readme-hero.png)
+
 `eas-mail-mcp` is a local Rust MCP server for Exchange ActiveSync 14.1. It gives
 supported AI clients structured mail tools and read-only calendar tools without
 a daemon, GUI, mailbox database, or runtime endpoint configuration.
