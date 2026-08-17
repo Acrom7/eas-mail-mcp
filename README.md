@@ -171,6 +171,12 @@ cargo xtask profile verify --profile-bundle .private/profile.toml --release
 cargo xtask build-bundles --profile-bundle .private/profile.toml
 ```
 
+The command emits architecture-specific archives plus one
+`eas-mail-mcp-<version>-macos-handoff.tar.gz`. The handoff contains both macOS
+architectures, internal checksums, and instructions for a local coding agent;
+the installer selects the current architecture. See the
+[Russian installation guide](docs/installation.ru.md) for the one-file flow.
+
 `.private/` is ignored in full. Profiles are compile-time input only: the
 runtime does not read `.env`, profile TOML, certificate files, or endpoint
 variables. See [Build-time profiles](docs/build-time-profiles.md) for the schema

@@ -44,7 +44,7 @@ enum Task {
         #[arg(long)]
         denylist: Option<PathBuf>,
     },
-    /// Builds ad-hoc signed arm64 and x86_64 user-local bundles.
+    /// Builds arm64, x86_64, and dual-architecture handoff bundles.
     BuildBundles {
         /// Non-development profile bundle to embed in both architectures.
         #[arg(long)]

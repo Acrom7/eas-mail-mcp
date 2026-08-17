@@ -70,7 +70,8 @@ cargo xtask build-bundles --profile-bundle .private/profile.toml
 
 The first command validates the public development example. The second applies
 the release eligibility gate. The third embeds the same verified manifest into
-both architecture-specific artifacts and records its version/hash.
+both architecture-specific artifacts and a dual-architecture macOS handoff,
+then records the profile version/hash in every bundle.
 
 `EAS_MAIL_PROFILE_BUNDLE` is an internal Cargo build input set by `xtask`; it is
 not read by the runtime. Direct operator builds may set it only for compilation:

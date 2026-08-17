@@ -8,6 +8,17 @@ const BINARY: &str = "eas-mail-mcp";
 
 pub(super) fn verify(dist: &Path, bundle: &Path, target: &str) -> Result<()> {
     let architecture = if target.starts_with("aarch64") { "arm64" } else { "x86_64" };
+    verify_architecture(dist, bundle, architecture)
+}
+
+pub(super) fn verify_handoff(dist: &Path, bundle: &Path) -> Result<()> {
+    for architecture in ["arm64", "x86_64"] {
+        verify_architecture(dist, bundle, architecture)?;
+    }
+    Ok(())
+}
+
+fn verify_architecture(dist: &Path, bundle: &Path, architecture: &str) -> Result<()> {
     let root = dist.join(format!(".install-smoke-{architecture}"));
     if root.exists() {
         fs::remove_dir_all(&root)?;

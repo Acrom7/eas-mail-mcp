@@ -13,6 +13,10 @@ This document records engineering controls used by release builds.
 - `cargo xtask build-bundles` rejects development-only manifests.
 - The profile version and content hash are embedded in the binary and written
   to `BUILD-METADATA.json` with source and artifact hashes.
+- The dual-architecture handoff contains no profile source or credentials. Its
+  installer verifies every extracted payload against an internal `SHA256SUMS`.
+  An external archive checksum or publisher signature remains necessary when
+  authenticity must be established before extraction.
 
 ## Publication controls
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 DELETE_DATA=0
 UNCONFIGURE_CLIENTS=""
 

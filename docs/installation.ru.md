@@ -1,8 +1,20 @@
 # Установка EAS Mail MCP
 
-Публичный `v0.1.1` распространяется только как исходный код. Готовый bundle для
+Публичный `v0.1.2` распространяется только как исходный код. Готовый bundle для
 реального сервера должен предоставить оператор, который собрал его с локальным
 build-time профилем и опубликовал SHA-256.
+
+## Передача одного файла ИИ-агенту
+
+`eas-mail-mcp-0.1.2-macos-handoff.tar.gz` содержит оба macOS-бинарника,
+installer, внутренний `SHA256SUMS` и `INSTALL-FOR-AI-AGENT.md`. Коллега скачивает
+его локально и передаёт coding agent путь к файлу с просьбой выполнить инструкцию
+из архива. Загружать корпоративный бинарник во внешний чат не требуется.
+
+Внешний `.tar.gz.sha256` можно публиковать отдельно через доверенный канал для
+проверки архива до распаковки. Для пилотной передачи одного файла installer всё
+равно проверит каждый распакованный payload по внутреннему manifest. Внутренний
+manifest обнаруживает повреждение, но сам по себе не подтверждает автора bundle.
 
 ## Проверка bundle
 
@@ -10,9 +22,9 @@ build-time профилем и опубликовал SHA-256.
 `x86_64-apple-darwin` для Intel. До распаковки проверьте внешний hash:
 
 ```bash
-shasum -a 256 -c eas-mail-mcp-0.1.1-<target>.tar.gz.sha256
-tar -xzf eas-mail-mcp-0.1.1-<target>.tar.gz
-cd eas-mail-mcp-0.1.1-<target>
+shasum -a 256 -c eas-mail-mcp-0.1.2-<target>.tar.gz.sha256
+tar -xzf eas-mail-mcp-0.1.2-<target>.tar.gz
+cd eas-mail-mcp-0.1.2-<target>
 cat BUILD-METADATA.json
 ./install.sh
 ```
@@ -58,12 +70,12 @@ eas-mail-mcp client configure opencode
 По умолчанию данные пользователя и Keychain сохраняются:
 
 ```bash
-~/.local/lib/eas-mail-mcp/0.1.1/share/uninstall.sh
+~/.local/lib/eas-mail-mcp/0.1.2/share/uninstall.sh
 ```
 
 Удалить также client entries и локальные данные:
 
 ```bash
-~/.local/lib/eas-mail-mcp/0.1.1/share/uninstall.sh \
+~/.local/lib/eas-mail-mcp/0.1.2/share/uninstall.sh \
   --clients codex,claude,opencode --delete-data
 ```

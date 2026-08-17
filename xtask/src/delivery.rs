@@ -1,3 +1,4 @@
+mod handoff;
 mod smoke;
 
 use std::fmt::Write as _;
@@ -10,11 +11,12 @@ use sha2::{Digest as _, Sha256};
 use crate::command::{output, run, run_env};
 use crate::profile;
 
-const BINARY: &str = "eas-mail-mcp";
+pub(super) const BINARY: &str = "eas-mail-mcp";
 const MACOS_DEPLOYMENT_TARGET: &str = "14.0";
 const MAX_BINARY_BYTES: u64 = 20 * 1024 * 1024;
 
 pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
+    ensure_clean(root)?;
     let profile = profile::verify(root, profile_path, true)?;
     let profile_source = profile.source.to_string_lossy().into_owned();
     let rustflags = remap_flags(root)?;
@@ -23,6 +25,7 @@ pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
         fs::remove_dir_all(&dist)?;
     }
     fs::create_dir_all(&dist)?;
+    let mut bundles = Vec::with_capacity(2);
     for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"] {
         run_env(
             root,
@@ -37,7 +40,17 @@ pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
         let bundle = create_bundle(root, &dist, target, &profile)?;
         smoke::verify(&dist, &bundle, target)?;
         archive(&dist, &bundle)?;
+        bundles.push((target, bundle));
     }
+    let handoff = handoff::create(root, &dist, &bundles, &profile)?;
+    smoke::verify_handoff(&dist, &handoff)?;
+    archive(&dist, &handoff)?;
+    Ok(())
+}
+
+fn ensure_clean(root: &Path) -> Result<()> {
+    let status = output(root, "git", ["status", "--porcelain=v1", "--untracked-files=all"])?;
+    anyhow::ensure!(status.trim().is_empty(), "release bundles require a clean Git worktree");
     Ok(())
 }
 
@@ -65,11 +78,21 @@ fn create_bundle(
     fs::copy(root.join("scripts/install.sh"), bundle.join("install.sh"))?;
     fs::copy(root.join("scripts/uninstall.sh"), bundle.join("uninstall.sh"))?;
     fs::copy(root.join("docs/installation.ru.md"), bundle.join("installation.ru.md"))?;
-    fs::write(bundle.join("TARGET_ARCH"), target_arch(target))?;
+    fs::write(bundle.join("TARGET_ARCH"), format!("{}\n", target_arch(target)))?;
     write_build_metadata(root, &bundle, &destination, target, profile)?;
     make_executable(&bundle.join("install.sh"))?;
     make_executable(&bundle.join("uninstall.sh"))?;
-    write_manifest(&bundle)?;
+    write_manifest(
+        &bundle,
+        vec![
+            PathBuf::from("TARGET_ARCH"),
+            PathBuf::from("BUILD-METADATA.json"),
+            PathBuf::from("bin").join(BINARY),
+            PathBuf::from("install.sh"),
+            PathBuf::from("installation.ru.md"),
+            PathBuf::from("uninstall.sh"),
+        ],
+    )?;
     Ok(bundle)
 }
 
@@ -89,15 +112,7 @@ fn archive(dist: &Path, bundle: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_manifest(bundle: &Path) -> Result<()> {
-    let mut files = vec![
-        PathBuf::from("TARGET_ARCH"),
-        PathBuf::from("BUILD-METADATA.json"),
-        PathBuf::from("bin").join(BINARY),
-        PathBuf::from("install.sh"),
-        PathBuf::from("installation.ru.md"),
-        PathBuf::from("uninstall.sh"),
-    ];
+pub(super) fn write_manifest(bundle: &Path, mut files: Vec<PathBuf>) -> Result<()> {
     files.sort();
     let mut manifest = String::new();
     for relative in files {
@@ -107,7 +122,7 @@ fn write_manifest(bundle: &Path) -> Result<()> {
     Ok(())
 }
 
-fn digest(path: &Path) -> Result<String> {
+pub(super) fn digest(path: &Path) -> Result<String> {
     Ok(Sha256::digest(fs::read(path)?).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
@@ -133,19 +148,19 @@ fn verify_macho(root: &Path, binary: &Path, target: &str) -> Result<()> {
     Ok(())
 }
 
-fn target_arch(target: &str) -> &'static str {
-    if target.starts_with("aarch64") { "arm64\n" } else { "x86_64\n" }
+pub(super) fn target_arch(target: &str) -> &'static str {
+    if target.starts_with("aarch64") { "arm64" } else { "x86_64" }
 }
 
 #[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
+pub(super) fn make_executable(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn make_executable(_: &Path) -> Result<()> {
+pub(super) fn make_executable(_: &Path) -> Result<()> {
     anyhow::bail!("bundle delivery supports macOS only")
 }
 

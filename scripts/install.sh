@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 CLIENTS=""
 REMOVE_QUARANTINE=0
 
@@ -28,9 +28,29 @@ cd "$ROOT"
 shasum -a 256 -c SHA256SUMS
 
 ARCH=$(uname -m)
-EXPECTED_ARCH=$(cat TARGET_ARCH)
-[ "$ARCH" = "$EXPECTED_ARCH" ] || {
-  printf '%s\n' "This bundle targets $EXPECTED_ARCH, current Mac is $ARCH" >&2
+if [ -f TARGET_ARCH ]; then
+  EXPECTED_ARCH=$(cat TARGET_ARCH)
+  [ "$ARCH" = "$EXPECTED_ARCH" ] || {
+    printf '%s\n' "This bundle targets $EXPECTED_ARCH, current Mac is $ARCH" >&2
+    exit 1
+  }
+  SOURCE_BINARY="bin/eas-mail-mcp"
+elif [ -f TARGET_ARCHS ]; then
+  case "$ARCH" in
+    arm64|x86_64) SOURCE_BINARY="bin/$ARCH/eas-mail-mcp" ;;
+    *) printf '%s\n' "Unsupported Mac architecture: $ARCH" >&2; exit 1 ;;
+  esac
+  grep -qx "$ARCH" TARGET_ARCHS || {
+    printf '%s\n' "This handoff does not contain a binary for $ARCH" >&2
+    exit 1
+  }
+else
+  printf '%s\n' "Bundle architecture metadata is missing" >&2
+  exit 1
+fi
+
+[ -f "$SOURCE_BINARY" ] && [ ! -L "$SOURCE_BINARY" ] || {
+  printf '%s\n' "Selected bundle binary is missing or is not a regular file" >&2
   exit 1
 }
 
@@ -58,7 +78,7 @@ REUSE_BINARY=0
 
 if [ -e "$TARGET_BINARY" ] || [ -L "$TARGET_BINARY" ]; then
   if [ -L "$TARGET_BINARY" ] || [ ! -f "$TARGET_BINARY" ] || \
-     ! cmp -s "bin/eas-mail-mcp" "$TARGET_BINARY"; then
+     ! cmp -s "$SOURCE_BINARY" "$TARGET_BINARY"; then
     printf '%s\n' "Version $VERSION already exists with different contents" >&2
     exit 1
   fi
@@ -79,7 +99,7 @@ TEMP_LINK="$BIN_DIR/.eas-mail-mcp.$$"
 trap 'rm -f "$TEMP_BINARY" "$TEMP_LINK"' 0
 trap 'exit 1' 1 2 15
 if [ "$REUSE_BINARY" -eq 0 ]; then
-  cp "bin/eas-mail-mcp" "$TEMP_BINARY"
+  cp "$SOURCE_BINARY" "$TEMP_BINARY"
   chmod 700 "$TEMP_BINARY"
   mv -f "$TEMP_BINARY" "$TARGET_BINARY"
 fi

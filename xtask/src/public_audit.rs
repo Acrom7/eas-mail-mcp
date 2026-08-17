@@ -1,3 +1,5 @@
+mod history;
+
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::Path;
@@ -21,12 +23,10 @@ pub(crate) fn run(root: &Path, denylist: Option<&Path>) -> Result<()> {
         let bytes = fs::read(&path).with_context(|| format!("cannot read {relative}"))?;
         scan(relative, &bytes, &patterns, &mut findings);
     }
-    let history = output(
-        root,
-        "git",
-        ["log", "--all", "--format=fuller", "--patch", "--no-ext-diff", "--binary"],
-    )?;
-    scan("Git history", history.as_bytes(), &patterns, &mut findings);
+    let history =
+        output(root, "git", ["log", "--all", "--format=fuller", "--patch", "--no-ext-diff"])?;
+    scan("Git history text", history.as_bytes(), &patterns, &mut findings);
+    history::scan_blobs(root, &patterns, &mut findings)?;
     for finding in &findings {
         writeln!(io::stderr().lock(), "private material: {finding}")?;
     }
@@ -57,7 +57,7 @@ fn patterns(root: &Path, denylist: Option<&Path>) -> Result<Vec<String>> {
     Ok(patterns)
 }
 
-fn scan(label: &str, bytes: &[u8], patterns: &[String], findings: &mut Vec<String>) {
+pub(super) fn scan(label: &str, bytes: &[u8], patterns: &[String], findings: &mut Vec<String>) {
     let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
     for pattern in patterns {
         if lower.contains(pattern) {
