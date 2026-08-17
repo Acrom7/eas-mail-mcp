@@ -147,6 +147,55 @@ HMAC key are stored in macOS Keychain.
 folders remain available through explicit `folder_ids`, while `sync_now` still
 refreshes every collection in the requested scope.
 
+## Configure an installed build
+
+Credentials do not go into `.env` or the MCP client configuration. Configure
+each account with the CLI; replace the sample values below with your own:
+
+```bash
+eas-mail-mcp --version --verbose # shows the available profile IDs
+eas-mail-mcp setup \
+  --account-id work \
+  --profile your-profile-id \
+  --email name@example.com \
+  --username 'REALM\username'
+```
+
+The command prompts for the password without displaying it. Email, username,
+and profile ID are stored in
+`~/Library/Application Support/EAS Mail MCP/config.toml`; the password is stored
+in macOS Keychain under the `eas-mail-mcp` service.
+
+The recommended client setup creates a backup and configures confirmation for
+write tools:
+
+```bash
+eas-mail-mcp client configure codex
+eas-mail-mcp client configure claude
+```
+
+Equivalent minimal Claude Code JSON configuration:
+
+```json
+{
+  "mcpServers": {
+    "eas-mail": {
+      "type": "stdio",
+      "command": "/absolute/path/to/eas-mail-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Equivalent minimal Codex configuration in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.eas-mail]
+command = "/absolute/path/to/eas-mail-mcp"
+args = ["serve"]
+```
+
 ## Build the example
 
 Requirements are macOS 14+ and the Rust toolchain pinned in
