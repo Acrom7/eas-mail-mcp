@@ -9,6 +9,8 @@ pub struct BackendAccount {
     pub profile: ProfileKey,
     /// Mailbox address.
     pub email: String,
+    /// Email domains associated with the account profile.
+    pub email_domains: Vec<String>,
     /// Whether the account is enabled.
     pub enabled: bool,
     /// Whether mail mutations are enabled.
@@ -47,12 +49,28 @@ pub struct BackendMail {
 pub struct BackendEvent {
     /// Stable account identifier.
     pub account_id: String,
-    /// Calendar collection identifier.
-    pub folder_id: String,
-    /// Event server identifier.
-    pub server_id: String,
+    /// Search LongId used for an on-demand ItemOperations fetch.
+    pub long_id: String,
     /// Parsed event fields.
     pub fields: CalendarFields,
+}
+
+/// Bounded Calendar Search result from one account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendCalendarSearch {
+    /// Matching own-calendar events.
+    pub events: Vec<BackendEvent>,
+    /// Total matches reported by Exchange.
+    pub total: usize,
+}
+
+/// Optional account capabilities relevant to public tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendCapabilities {
+    /// Whether ResolveRecipients Availability is advertised.
+    pub calendar_availability: bool,
+    /// Whether all mail compose commands are advertised.
+    pub mail_writes: bool,
 }
 
 /// One explicit synchronization result.

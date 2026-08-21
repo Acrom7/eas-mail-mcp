@@ -16,10 +16,6 @@ fn snapshot_sort_keys_preserve_missing_and_present_timestamps() -> anyhow::Resul
     mail.received_at = Patch::Value(Some(timestamp));
     assert_eq!(received(&mail), Some(timestamp));
 
-    let mut event = CalendarFields::default();
-    assert_eq!(start(&event), None);
-    event.starts_at = Patch::Value(Some(timestamp));
-    assert_eq!(start(&event), Some(timestamp));
     Ok(())
 }
 
@@ -35,7 +31,7 @@ fn source_parts_supports_collection_and_search_references() {
 #[test]
 fn missing_session_policy_fails_closed() {
     let state = SessionState {
-        options_checked: true,
+        capabilities: None,
         policy_key: 0,
         policy: None,
         folder_sync_key: "0".into(),

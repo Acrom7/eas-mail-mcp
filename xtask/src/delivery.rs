@@ -166,6 +166,7 @@ pub(super) fn remap_flags(root: &Path) -> Result<String> {
 
 pub(super) fn verify_binary_strings(root: &Path, binary: &Path) -> Result<()> {
     let binary_text = output(root, "strings", [binary.as_os_str()])?;
+    crate::public_audit::audit_bytes(root, "release binary", binary_text.as_bytes())?;
     let forbidden = [
         root.to_string_lossy().into_owned(),
         ["/", "Users", "/"].concat(),

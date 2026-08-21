@@ -1,9 +1,13 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::protocol::{self, ComposeSource, PolicyDecision};
+use chrono::{DateTime, Utc};
+
 use crate::{
-    CollectionKind, Command, EasError, FolderPage, ItemResult, MutationResult, RequestSafety,
-    Result, SearchMail, SyncPage, Transport,
+    CalendarItemResult, CollectionKind, Command, EasError, FolderPage, ItemResult, MutationResult,
+    RecipientAvailability, RequestSafety, Result, SearchCalendarPage, SearchMail, SyncPage,
+    Transport,
 };
 
 /// Successfully acknowledged Exchange policy and its final key.
@@ -13,6 +17,28 @@ pub struct NegotiatedPolicy {
     pub key: u32,
     /// Enforceable policy limits.
     pub decision: PolicyDecision,
+}
+
+/// EAS 14.1 commands advertised by one endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerCapabilities {
+    commands: BTreeSet<Command>,
+}
+
+impl ServerCapabilities {
+    /// Reports whether the endpoint advertises one command.
+    #[must_use]
+    pub fn supports(&self, command: Command) -> bool {
+        self.commands.contains(&command)
+    }
+
+    /// Reports whether all externally visible compose operations are available.
+    #[must_use]
+    pub fn supports_writes(&self) -> bool {
+        [Command::SendMail, Command::SmartReply, Command::SmartForward]
+            .into_iter()
+            .all(|command| self.supports(command))
+    }
 }
 
 /// Stateless EAS command client over an injected transport.
@@ -27,8 +53,8 @@ impl EasClient {
         Self { transport }
     }
 
-    /// Verifies EAS 14.1 and required server commands.
-    pub async fn options(&self) -> Result<()> {
+    /// Verifies EAS 14.1 and returns the endpoint's advertised capabilities.
+    pub async fn options(&self) -> Result<ServerCapabilities> {
         let response = self.transport.options().await?;
         require_http_success(response.status)?;
         let versions =
@@ -36,25 +62,37 @@ impl EasClient {
         if !versions.split(',').any(|value| value.trim() == "14.1") {
             return Err(EasError::Protocol("Exchange does not advertise EAS 14.1".into()));
         }
-        let commands =
+        let advertised =
             response.headers.get("ms-asprotocolcommands").map(String::as_str).unwrap_or_default();
+        let commands = [
+            Command::Provision,
+            Command::FolderSync,
+            Command::Sync,
+            Command::Search,
+            Command::ItemOperations,
+            Command::SendMail,
+            Command::SmartReply,
+            Command::SmartForward,
+            Command::ResolveRecipients,
+        ]
+        .into_iter()
+        .filter(|command| advertised.split(',').any(|value| value.trim() == command.name()))
+        .collect::<BTreeSet<_>>();
         for required in [
-            "Provision",
-            "FolderSync",
-            "Sync",
-            "Search",
-            "ItemOperations",
-            "SendMail",
-            "SmartReply",
-            "SmartForward",
+            Command::Provision,
+            Command::FolderSync,
+            Command::Sync,
+            Command::Search,
+            Command::ItemOperations,
         ] {
-            if !commands.split(',').any(|value| value.trim() == required) {
+            if !commands.contains(&required) {
                 return Err(EasError::Protocol(format!(
-                    "Exchange does not advertise required command {required}"
+                    "Exchange does not advertise required command {}",
+                    required.name()
                 )));
             }
         }
-        Ok(())
+        Ok(ServerCapabilities { commands })
     }
 
     /// Negotiates and acknowledges only policy requirements the client can enforce.
@@ -162,6 +200,39 @@ impl EasClient {
         protocol::parse_search(&response.body)
     }
 
+    /// Searches Calendar items on Exchange instead of synchronizing all future events.
+    pub async fn search_calendar(
+        &self,
+        key: u32,
+        query: &str,
+        start: usize,
+        limit: usize,
+    ) -> Result<SearchCalendarPage> {
+        let body = protocol::build_calendar_search(query, start, limit)?;
+        let response = self.read_command(Command::Search, &body, key).await?;
+        protocol::parse_calendar_search(&response.body)
+    }
+
+    /// Resolves recipients and retrieves one bounded free/busy range.
+    pub async fn availability(
+        &self,
+        key: u32,
+        participants: &[String],
+        starts_at: DateTime<Utc>,
+        ends_at: DateTime<Utc>,
+    ) -> Result<Vec<RecipientAvailability>> {
+        let body = protocol::build_availability(participants, starts_at, ends_at)?;
+        let duration = ends_at.signed_duration_since(starts_at).num_milliseconds();
+        let slots = duration
+            .checked_add(1_799_999)
+            .and_then(|value| usize::try_from(value / 1_800_000).ok())
+            .ok_or_else(|| {
+                EasError::InvalidConfiguration("availability range is invalid".into())
+            })?;
+        let response = self.read_command(Command::ResolveRecipients, &body, key).await?;
+        protocol::parse_availability(&response.body, slots)
+    }
+
     /// Fetches a full mail item on demand.
     pub async fn fetch_item(
         &self,
@@ -175,6 +246,18 @@ impl EasClient {
             protocol::build_item_fetch(long_id, collection_id, server_id, body_limit.min(50_000))?;
         let response = self.read_command(Command::ItemOperations, &body, key).await?;
         protocol::parse_item_fetch(&response.body)
+    }
+
+    /// Fetches one full Calendar item by Search LongId.
+    pub async fn fetch_calendar_item(
+        &self,
+        key: u32,
+        long_id: &str,
+        body_limit: usize,
+    ) -> Result<CalendarItemResult> {
+        let body = protocol::build_item_fetch(Some(long_id), None, None, body_limit.min(50_000))?;
+        let response = self.read_command(Command::ItemOperations, &body, key).await?;
+        protocol::parse_calendar_item_fetch(&response.body)
     }
 
     /// Downloads one attachment on demand.
@@ -256,7 +339,8 @@ fn normalize_command_response(
 fn require_http_success(status: u16) -> Result<()> {
     match status {
         200 | 201 | 204 => Ok(()),
-        401 | 403 => Err(EasError::Authentication),
+        401 => Err(EasError::Authentication),
+        403 => Err(EasError::AccessDenied),
         status => Err(EasError::Protocol(format!("Exchange returned HTTP {status}"))),
     }
 }

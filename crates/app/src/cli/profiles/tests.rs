@@ -1,10 +1,11 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eas_mail_profile::{ProfileBundle, ProfileSpec};
 use eas_mail_protocol::ProfileKey;
 
 use super::*;
+use crate::cli::ProfileIdentityMode;
 use crate::{AccountConfig, AppConfig, save_config};
 
 mod edge_cases;
@@ -35,6 +36,24 @@ fn import_validate_list_and_export_round_trip() -> anyhow::Result<()> {
     let stored = eas_mail_profile::load(&paths.profiles)?;
     let copy = eas_mail_profile::load(&exported)?;
     assert_eq!(stored.manifest, copy.manifest);
+    Ok(())
+}
+
+#[test]
+fn exporting_a_legacy_store_migrates_the_local_file_to_v2() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let paths = paths(directory.path());
+    paths.ensure()?;
+    fs::write(
+        &paths.profiles,
+        "schema_version = 1\nbundle_version = \"legacy\"\n\n[[profiles]]\nid = \"example\"\ndisplay_name = \"Example\"\nhost = \"mail.example.invalid\"\nemail_domains = [\"example.invalid\"]\nusername_realm = \"EXAMPLE\"\ndevice_id_length = 16\n\n[profiles.trust]\nmode = \"system\"\n",
+    )?;
+    let exported = directory.path().join("exported.toml");
+    export(&paths, ProfileExportArgs { file: exported, id: None })?;
+    let migrated = fs::read_to_string(&paths.profiles)?;
+    assert!(migrated.contains("schema_version = 2"));
+    assert!(migrated.contains("mode = \"realm_username\""));
+    assert!(!migrated.contains("username_realm"));
     Ok(())
 }
 
@@ -112,7 +131,9 @@ fn manual_add_and_unused_remove_leave_no_empty_store() -> anyhow::Result<()> {
             display_name: Some("Manual profile".into()),
             host: Some("mail.example.invalid".into()),
             email_domains: vec!["example.invalid".into()],
+            identity_mode: Some(ProfileIdentityMode::Username),
             username_realm: None,
+            username_hint: None,
             device_id_length: Some(16),
             pem: None,
         },
@@ -141,11 +162,7 @@ fn first_profile(paths: &Paths) -> anyhow::Result<ProfileSpec> {
         .ok_or_else(|| anyhow::anyhow!("profile fixture is empty"))
 }
 
-fn write_manifest(
-    root: &Path,
-    name: &str,
-    manifest: &ProfileBundle,
-) -> anyhow::Result<std::path::PathBuf> {
+fn write_manifest(root: &Path, name: &str, manifest: &ProfileBundle) -> anyhow::Result<PathBuf> {
     let path = root.join(name);
     fs::write(&path, eas_mail_profile::serialize(manifest)?)?;
     Ok(path)

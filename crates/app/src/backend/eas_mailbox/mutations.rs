@@ -1,5 +1,5 @@
 use eas_mail_protocol::protocol::{ComposeSource, build_mime_message};
-use eas_mail_protocol::{EasError, Patch};
+use eas_mail_protocol::{Command, EasError, Patch};
 
 use super::super::{MailSource, OutgoingMail};
 use super::session::EasMailbox;
@@ -13,9 +13,10 @@ impl EasMailbox {
                 "read state requires a message returned by mail_list",
             ));
         };
-        self.sync_selected(true, false, false, Some(std::slice::from_ref(folder_id))).await?;
+        self.sync_mail_selected(false, Some(std::slice::from_ref(folder_id))).await?;
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
+        self.require_capability(&state, Command::SendMail)?;
         let sync_key = state
             .collections
             .get(folder_id)
@@ -49,6 +50,7 @@ impl EasMailbox {
         let mime = self.mime(message)?;
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
+        self.require_capability(&state, Command::SendMail)?;
         let result = self.client.send(state.policy_key, client_id, mime.clone()).await;
         let result = if matches!(result, Err(EasError::PolicyRefreshRequired)) {
             self.refresh_policy(&mut state).await?;
@@ -70,6 +72,10 @@ impl EasMailbox {
         let mime = self.mime(message)?;
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
+        self.require_capability(
+            &state,
+            if forward { Command::SmartForward } else { Command::SmartReply },
+        )?;
         let source = compose_source(source);
         let result = self
             .client

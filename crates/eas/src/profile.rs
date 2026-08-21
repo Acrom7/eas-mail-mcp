@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use eas_mail_profile::{TrustSpec, VerifiedBundle, valid_profile_key};
+use eas_mail_profile::{IdentityMode, IdentitySpec, TrustSpec, VerifiedBundle, valid_profile_key};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{EasError, Result};
@@ -74,7 +74,7 @@ pub struct Profile {
     display_name: String,
     pub(crate) host: String,
     email_domains: Vec<String>,
-    username_realm: Option<String>,
+    identity: IdentitySpec,
     device_id_length: u8,
     pub(crate) extra_ca_pem: Option<Vec<u8>>,
 }
@@ -90,6 +90,12 @@ impl Profile {
     #[must_use]
     pub fn display_name(&self) -> &str {
         &self.display_name
+    }
+
+    /// Returns email domains associated with this endpoint profile.
+    #[must_use]
+    pub fn email_domains(&self) -> &[String] {
+        &self.email_domains
     }
 
     /// Returns the only allowed EAS URL for this profile.
@@ -110,8 +116,68 @@ impl Profile {
         self.extra_ca_pem.is_some()
     }
 
+    /// Returns how the setup wizard should collect the authentication username.
+    #[must_use]
+    pub const fn identity_mode(&self) -> IdentityMode {
+        self.identity.mode
+    }
+
+    /// Returns the configured realm for `realm_username` mode.
+    #[must_use]
+    pub fn username_realm(&self) -> Option<&str> {
+        self.identity.realm.as_deref()
+    }
+
+    /// Returns an optional operator-provided username hint.
+    #[must_use]
+    pub fn username_hint(&self) -> Option<&str> {
+        self.identity.username_hint.as_deref()
+    }
+
+    /// Constructs the canonical Basic Auth username for this profile.
+    pub fn canonical_username(&self, email: &str, input: Option<&str>) -> Result<String> {
+        self.validate_email(email)?;
+        match self.identity.mode {
+            IdentityMode::Email => {
+                if input.is_some_and(|value| !value.trim().eq_ignore_ascii_case(email.trim())) {
+                    return Err(EasError::InvalidConfiguration(
+                        "username must match the mailbox email for this profile".into(),
+                    ));
+                }
+                Ok(email.trim().to_owned())
+            }
+            IdentityMode::Username => normalized_username(input),
+            IdentityMode::RealmUsername => {
+                let required = self.identity.realm.as_deref().ok_or_else(|| {
+                    EasError::InvalidConfiguration("profile username realm is missing".into())
+                })?;
+                let value = normalized_username(input)?;
+                let local = match value.split_once('\\') {
+                    Some((realm, local)) if realm.eq_ignore_ascii_case(required) => local,
+                    Some(_) => {
+                        return Err(EasError::InvalidConfiguration(
+                            "username does not match the selected profile realm".into(),
+                        ));
+                    }
+                    None => value.as_str(),
+                };
+                if local.is_empty() || local.contains('\\') {
+                    return Err(EasError::InvalidConfiguration(
+                        "username local part is invalid".into(),
+                    ));
+                }
+                Ok(format!("{required}\\{local}"))
+            }
+        }
+    }
+
     /// Validates account identity against the local profile.
     pub fn validate_identity(&self, email: &str, username: &str) -> Result<()> {
+        self.canonical_username(email, Some(username)).map(|_| ())
+    }
+
+    fn validate_email(&self, email: &str) -> Result<()> {
+        let email = email.trim();
         let domain = email.rsplit_once('@').map(|(_, domain)| domain);
         if domain.is_none_or(|domain| {
             !self.email_domains.iter().any(|allowed| domain.eq_ignore_ascii_case(allowed))
@@ -119,17 +185,6 @@ impl Profile {
             return Err(EasError::InvalidConfiguration(
                 "email does not match the selected profile".into(),
             ));
-        }
-        if username.trim().is_empty() || username.chars().any(char::is_control) {
-            return Err(EasError::InvalidConfiguration("username must not be empty".into()));
-        }
-        if let Some(required) = &self.username_realm {
-            let actual = username.split_once('\\').map(|(realm, _)| realm);
-            if actual.is_none_or(|realm| !realm.eq_ignore_ascii_case(required)) {
-                return Err(EasError::InvalidConfiguration(
-                    "username does not match the selected profile realm".into(),
-                ));
-            }
         }
         Ok(())
     }
@@ -153,7 +208,11 @@ impl Profile {
             display_name: "Local test".into(),
             host: "localhost".into(),
             email_domains: vec!["example.invalid".into()],
-            username_realm: None,
+            identity: IdentitySpec {
+                mode: IdentityMode::Username,
+                realm: None,
+                username_hint: None,
+            },
             device_id_length: 32,
             extra_ca_pem: None,
         }
@@ -190,7 +249,7 @@ impl ProfileRegistry {
                 display_name: spec.display_name.clone(),
                 host: spec.host.clone(),
                 email_domains: spec.email_domains.clone(),
-                username_realm: spec.username_realm.clone(),
+                identity: spec.identity.clone(),
                 device_id_length: spec.device_id_length,
                 extra_ca_pem,
             });
@@ -243,4 +302,12 @@ impl ProfileRegistry {
     pub fn is_empty(&self) -> bool {
         self.profiles.is_empty()
     }
+}
+
+fn normalized_username(input: Option<&str>) -> Result<String> {
+    let value = input.unwrap_or_default().trim();
+    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+        return Err(EasError::InvalidConfiguration("username is invalid".into()));
+    }
+    Ok(value.to_owned())
 }

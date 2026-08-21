@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 bundle_version = "example-1"
 
 [[profiles]]
@@ -7,6 +7,10 @@ display_name = "Example EAS"
 host = "mail.example.invalid"
 email_domains = ["example.invalid"]
 device_id_length = 16
+
+[profiles.identity]
+mode = "username"
+username_hint = "Your Exchange login"
 
 [profiles.trust]
 mode = "system"

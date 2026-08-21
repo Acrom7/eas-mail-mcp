@@ -29,14 +29,19 @@ flowchart LR
 
 Each MCP client launches its own `eas-mail-mcp serve` process. There is no
 daemon and no mailbox database. The process stays alive for the MCP session,
-keeps synchronization state in RAM, and exits with the client.
+keeps synchronization state in RAM, and exits when that stdio connection
+closes. A client may keep several task sessions open at once, so several server
+processes can belong to one client application. The idle RSS target of 20 MiB
+is per process; aggregate memory scales with the number of active sessions.
+Changing or removing client configuration does not close sessions that are
+already running, so restart the client after reconfiguration.
 
 ### Terms for application developers
 
 | Term | Practical mental model |
 | --- | --- |
 | MCP tool | A typed endpoint such as `mail_list` or `mail_send` |
-| EAS | The Exchange API used for mail and calendar synchronization |
+| EAS | The Exchange API used for mail, directory availability, and own-calendar lookup |
 | WBXML | A compact binary representation of the XML messages used by EAS |
 | SyncKey | A server-issued version cursor: "changes since this state" |
 | `mail_ref` / `event_ref` | A short-lived process-local handle, not a database ID |
@@ -69,7 +74,7 @@ sequenceDiagram
 ```
 
 `mail_list` refreshes Inbox and Sent unless explicit `folder_ids` are supplied.
-`sync_now` can refresh every selected collection. Lists return metadata and a
+`sync_now` can refresh every selected mail collection. Lists return metadata and a
 short plain-text preview; `mail_get` fetches the full body only when requested,
 and attachments require separate list and download calls. `mail_search` always
 searches Exchange instead of a local index.
@@ -79,15 +84,34 @@ the same process can reuse FolderSync and collection SyncKeys, so they usually
 transfer fewer records. Restarting the process intentionally discards that
 state.
 
+### Compact calendar path
+
+The calendar tools do not synchronize or cache a calendar database.
+`calendar_availability` sends supplied names or email addresses to EAS
+`ResolveRecipients + Availability` and returns only merged 30-minute free/busy
+states. It never returns subjects or bodies from another person's meetings.
+Ranges are limited to 31 days and requested from Exchange in chunks of at most
+seven days.
+
+`calendar_find_slots` performs timezone, DST, working-hours, tentative-policy,
+and participant intersection calculations inside the Rust process. It returns
+common windows instead of making the AI client parse a large event dump. The
+account owner is not added implicitly; include every participant explicitly.
+
+`calendar_search` performs a bounded server-side Search over the selected
+account's own Calendar items. Compact results carry a 15-minute `event_ref`;
+`calendar_get` uses ItemOperations to fetch exactly that event, including body,
+attendees, recurrence, and exceptions, only when requested.
+
 ### State and storage
 
 | Location | Stored data |
 | --- | --- |
 | Installed binary | Generic EAS transport and MCP runtime; no endpoint data |
-| `profiles.toml` | Host, allowed email domains, optional realm, and TLS trust mode |
+| `profiles.toml` | Host, allowed email domains, login strategy, and TLS trust mode |
 | `config.toml` | Profile key, email, username, enabled state, write permission |
 | macOS Keychain | Password, Device ID, policy state, journal HMAC key |
-| Process RAM | Folders, SyncKeys, mail/event data, references, cursors |
+| Process RAM | Mail SyncKeys/data, short-lived search references, and cursors |
 | SQLite | Content-free idempotency metadata for write operations only |
 | Cache directory | Explicitly downloaded attachments, retained for up to 24 hours |
 
@@ -142,7 +166,8 @@ Read tools:
 - `accounts_list`, `folders_list`, `sync_status`, `sync_now`
 - `mail_list`, `mail_search`, `mail_get`
 - `mail_list_attachments`, `mail_download_attachment`
-- `calendar_list`, `calendar_search`, `calendar_get`
+- `calendar_availability`, `calendar_find_slots`
+- `calendar_search`, `calendar_get`
 
 Write tools:
 
@@ -154,8 +179,9 @@ ambiguous network result. Passwords, Device IDs, policy state, and the journal
 HMAC key are stored in macOS Keychain.
 
 `mail_list` synchronizes Inbox and Sent when `folder_ids` is omitted. Other mail
-folders remain available through explicit `folder_ids`, while `sync_now` still
-refreshes every collection in the requested scope.
+folders remain available through explicit `folder_ids`, while `sync_now`
+refreshes every mail collection for the selected accounts. `sync_status` reports
+only that process-local mail synchronization state.
 
 ## Install and configure
 
@@ -167,13 +193,14 @@ npm install -g eas-mail-mcp@next
 eas-mail-mcp setup
 ```
 
-`setup` imports an existing profile or walks through creating one, adds an
-account, checks the live EAS connection, offers to configure detected MCP
-clients, and runs redacted diagnostics. A portable profile contains endpoint
-metadata but never credentials. For example:
+`setup` imports or creates a profile, adds and verifies one or more accounts,
+offers to configure detected MCP clients, and runs redacted diagnostics. Run it
+again to add or repair accounts, update passwords, change write access, manage
+profiles, or rerun diagnostics. A portable profile contains endpoint metadata but never
+credentials. For example:
 
 ```toml
-schema_version = 1
+schema_version = 2
 bundle_version = "team-1"
 
 [[profiles]]
@@ -181,12 +208,21 @@ id = "work"
 display_name = "Work Mail"
 host = "mail.example.com"
 email_domains = ["example.com"]
-username_realm = "EXAMPLE"
 device_id_length = 16
+
+[profiles.identity]
+mode = "realm_username"
+realm = "EXAMPLE"
+username_hint = "Short corporate login"
 
 [profiles.trust]
 mode = "system"
 ```
+
+Identity mode can be `email`, `username`, or `realm_username`. In the last
+mode, the wizard accepts a short login and constructs `REALM\login` itself, so
+shell escaping is unnecessary. Schema v1 profiles remain readable and are
+rewritten as v2 on their next export or modification.
 
 It can be imported explicitly before setup:
 
@@ -195,22 +231,26 @@ eas-mail-mcp profile import ./work-profile.toml
 eas-mail-mcp setup
 ```
 
-Credentials do not go into `.env` or the MCP client configuration. Configure
-an additional account with the CLI; replace the sample values below with your
-own:
+Credentials do not go into `.env` or the MCP client configuration. The wizard
+asks for a hidden password and stores it only after TLS, authentication, EAS
+14.1, policy, and FolderSync checks succeed. To add another account, rerun
+`setup` or use the same interactive account flow directly:
 
 ```bash
-eas-mail-mcp account add work \
-  --profile your-profile-id \
-  --email name@example.com \
-  --username 'REALM\username'
+eas-mail-mcp account add
 ```
 
-The command prompts for the password without displaying it. Email, username,
-and profile ID are stored in
+Scripted automation can still provide all account flags and use
+`--password-stdin`; incomplete non-TTY input fails with
+`INTERACTIVE_REQUIRED`. Email, canonical username, and profile ID are stored in
 `~/Library/Application Support/EAS Mail MCP/config.toml`; the password is stored
 in macOS Keychain under the `eas-mail-mcp` service. Profiles are stored in
 `~/Library/Application Support/EAS Mail MCP/profiles.toml`.
+
+This release intentionally supports Basic Auth over strict TLS, EAS 14.1, and
+the standard `/Microsoft-Server-ActiveSync` path. It does not implement OAuth,
+IMAP, Microsoft Graph, custom EAS paths, TLS bypasses, or client identity
+spoofing.
 
 The recommended client setup creates a backup, registers the direct Rust
 binary, and removes obsolete write approval overrides created by earlier beta
@@ -272,13 +312,16 @@ and a root launcher package:
 
 ```bash
 cargo xtask npm pack
+cargo xtask npm install-candidate
 ```
 
 The output is written to `dist/npm`. Platform packages are exact optional
 dependencies of the root package and contain only one native binary. There are
-no install or postinstall scripts. See [Runtime profiles](docs/runtime-profiles.md)
-for the full profile schema and [Security](SECURITY.md) for the local trust
-boundary.
+no install or postinstall scripts. Public releases use npm staged publishing so
+the exact tarballs can be installed and accepted before approval. See
+[Runtime profiles](docs/runtime-profiles.md) for the full profile schema,
+[Security](SECURITY.md) for the local trust boundary, and
+[npm release process](docs/releasing.md) for the staged flow.
 
 ## Engineering gates
 

@@ -4,15 +4,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use eas_mail_protocol::protocol::PolicyDecision;
 use eas_mail_protocol::{
-    CalendarFields, CollectionKind, EasClient, EasError, Folder, HttpTransport, MailFields,
-    ProfileRegistry, Transport,
+    CollectionKind, EasClient, EasError, Folder, HttpTransport, MailFields, ProfileRegistry,
+    ServerCapabilities, Transport,
 };
 use tokio::sync::Mutex;
 
 use super::super::{
-    AccountBackend, BackendAccount, BackendEvent, BackendMail, BackendSync, MailSource,
-    OutgoingMail,
+    AccountBackend, BackendAccount, BackendCalendarSearch, BackendCapabilities, BackendEvent,
+    BackendMail, BackendSync, MailSource, OutgoingMail,
 };
+use super::VerificationStage;
 use crate::config::AccountConfig;
 use crate::keychain::{AccountSecret, SecretStore, StoredPolicy};
 use crate::{AppError, ErrorCode, Result};
@@ -21,17 +22,16 @@ pub(super) struct CollectionState {
     pub(super) kind: CollectionKind,
     pub(super) sync_key: String,
     pub(super) mail: BTreeMap<String, MailFields>,
-    pub(super) calendar: BTreeMap<String, CalendarFields>,
 }
 
 impl CollectionState {
     pub(super) fn new(kind: CollectionKind) -> Self {
-        Self { kind, sync_key: "0".into(), mail: BTreeMap::new(), calendar: BTreeMap::new() }
+        Self { kind, sync_key: "0".into(), mail: BTreeMap::new() }
     }
 }
 
 pub(super) struct SessionState {
-    pub(super) options_checked: bool,
+    pub(super) capabilities: Option<ServerCapabilities>,
     pub(super) policy_key: u32,
     pub(super) policy: Option<PolicyDecision>,
     pub(super) folder_sync_key: String,
@@ -71,19 +71,21 @@ impl EasMailbox {
         profiles: &ProfileRegistry,
     ) -> Result<Self> {
         config.validate(profiles)?;
+        let profile = profiles.require(&config.profile)?;
         let transport = HttpTransport::new(
-            profiles.require(&config.profile)?,
+            profile,
             config.username.clone(),
             secret.password.clone(),
             secret.device_id.clone(),
         )?;
-        Self::with_transport(
+        Self::with_transport_and_domains(
             account_id,
             config,
             secrets,
             Arc::new(transport),
             secret.policy_key,
             secret.policy.as_ref().map(PolicyDecision::from),
+            profile.email_domains().to_vec(),
         )
     }
 
@@ -96,11 +98,31 @@ impl EasMailbox {
         policy_key: u32,
         policy: Option<PolicyDecision>,
     ) -> Result<Self> {
+        let domains = config
+            .email
+            .rsplit_once('@')
+            .map(|(_, domain)| vec![domain.to_ascii_lowercase()])
+            .unwrap_or_default();
+        Self::with_transport_and_domains(
+            account_id, config, secrets, transport, policy_key, policy, domains,
+        )
+    }
+
+    fn with_transport_and_domains(
+        account_id: String,
+        config: AccountConfig,
+        secrets: Arc<dyn SecretStore>,
+        transport: Arc<dyn Transport>,
+        policy_key: u32,
+        policy: Option<PolicyDecision>,
+        email_domains: Vec<String>,
+    ) -> Result<Self> {
         config.validate_shape()?;
         let account = BackendAccount {
             account_id,
             profile: config.profile.clone(),
             email: config.email,
+            email_domains,
             enabled: config.enabled,
             write_enabled: config.write_enabled,
         };
@@ -109,7 +131,7 @@ impl EasMailbox {
             client: Arc::new(EasClient::new(transport)),
             secrets,
             state: Mutex::new(SessionState {
-                options_checked: false,
+                capabilities: None,
                 policy_key,
                 policy,
                 folder_sync_key: "0".into(),
@@ -120,14 +142,54 @@ impl EasMailbox {
     }
 
     pub(super) async fn ensure_ready(&self, state: &mut SessionState) -> Result<()> {
-        if !state.options_checked {
-            self.client.options().await.map_err(self.scoped_error())?;
-            state.options_checked = true;
+        if state.capabilities.is_none() {
+            state.capabilities = Some(self.client.options().await.map_err(self.scoped_error())?);
         }
         if state.policy_key == 0 || state.policy.is_none() {
             self.refresh_policy(state).await?;
         }
         Ok(())
+    }
+
+    pub(super) fn require_capability(
+        &self,
+        state: &SessionState,
+        command: eas_mail_protocol::Command,
+    ) -> Result<()> {
+        if state.capabilities.as_ref().is_some_and(|value| value.supports(command)) {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                ErrorCode::ProtocolError,
+                format!("Exchange does not advertise required command {}", command.name()),
+            )
+            .account(&self.account.account_id))
+        }
+    }
+
+    pub(crate) async fn verification_result_with_progress(
+        &self,
+        progress: &mut dyn FnMut(VerificationStage) -> Result<()>,
+    ) -> Result<(usize, bool)> {
+        progress(VerificationStage::Transport)?;
+        {
+            let mut state = self.state.lock().await;
+            if state.capabilities.is_none() {
+                state.capabilities =
+                    Some(self.client.options().await.map_err(self.scoped_error())?);
+            }
+            progress(VerificationStage::Capabilities)?;
+            progress(VerificationStage::Policy)?;
+            if state.policy_key == 0 || state.policy.is_none() {
+                self.refresh_policy(&mut state).await?;
+            }
+        }
+        progress(VerificationStage::FolderSync)?;
+        let folders = self.refresh_folders().await?;
+        let state = self.state.lock().await;
+        let writes_supported =
+            state.capabilities.as_ref().is_some_and(ServerCapabilities::supports_writes);
+        Ok((folders.len(), writes_supported))
     }
 
     pub(super) async fn refresh_policy(&self, state: &mut SessionState) -> Result<()> {
@@ -177,12 +239,26 @@ impl AccountBackend for EasMailbox {
         self.account.clone()
     }
 
+    async fn capabilities(&self) -> Result<BackendCapabilities> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        let capabilities = state.capabilities.as_ref().ok_or_else(|| {
+            AppError::new(ErrorCode::ProtocolError, "Exchange capabilities are unavailable")
+                .account(&self.account.account_id)
+        })?;
+        Ok(BackendCapabilities {
+            calendar_availability: capabilities
+                .supports(eas_mail_protocol::Command::ResolveRecipients),
+            mail_writes: capabilities.supports_writes(),
+        })
+    }
+
     async fn folders(&self) -> Result<Vec<Folder>> {
         self.refresh_folders().await
     }
 
-    async fn sync(&self, mail: bool, calendar: bool) -> Result<BackendSync> {
-        self.sync_selected(mail, calendar, true, None).await
+    async fn sync_mail(&self) -> Result<BackendSync> {
+        self.sync_mail_selected(true, None).await
     }
 
     async fn list_mail(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendMail>> {
@@ -190,7 +266,7 @@ impl AccountBackend for EasMailbox {
             Some(values) => values.to_vec(),
             None => self.primary_mail_folder_ids().await?,
         };
-        self.sync_selected(true, false, false, Some(&selected)).await?;
+        self.sync_mail_selected(false, Some(&selected)).await?;
         self.mail_snapshot(Some(&selected)).await
     }
 
@@ -206,9 +282,21 @@ impl AccountBackend for EasMailbox {
         self.download(file_reference).await
     }
 
-    async fn list_calendar(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendEvent>> {
-        self.sync_selected(false, true, false, None).await?;
-        self.calendar_snapshot(folder_ids).await
+    async fn calendar_availability(
+        &self,
+        participants: &[String],
+        starts_at: chrono::DateTime<chrono::Utc>,
+        ends_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<eas_mail_protocol::RecipientAvailability>> {
+        self.availability(participants, starts_at, ends_at).await
+    }
+
+    async fn search_calendar(&self, query: &str, limit: usize) -> Result<BackendCalendarSearch> {
+        self.search_events(query, limit).await
+    }
+
+    async fn fetch_calendar(&self, long_id: &str, body_limit: usize) -> Result<BackendEvent> {
+        self.fetch_event(long_id, body_limit).await
     }
 
     async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()> {

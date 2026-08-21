@@ -36,14 +36,38 @@ pub(crate) fn pack(root: &Path) -> Result<()> {
     for (package, target) in PACKAGES {
         build_target(root, target, &rustflags)?;
         let package_root = stage_platform(root, &staging, package, target)?;
-        archives.push(pack_package(&package_root, &dist, package, &version)?);
+        archives.push(pack_package(root, &package_root, &dist, package, &version)?);
     }
 
     let root_package = stage_root(root, &staging)?;
-    let root_archive = pack_package(&root_package, &dist, BINARY, &version)?;
+    let root_archive = pack_package(root, &root_package, &dist, BINARY, &version)?;
     archives.push(root_archive.clone());
     write_checksums(&dist, &archives)?;
     smoke_install(root, &dist, &root_archive, &archives)?;
+    Ok(())
+}
+
+pub(crate) fn install_candidate(root: &Path) -> Result<()> {
+    anyhow::ensure!(cfg!(target_os = "macos"), "npm candidate installation requires macOS");
+    verify(root)?;
+    let version = manifest::workspace_version(root)?;
+    let dist = root.join("dist/npm");
+    let host_package = host_package();
+    let platform_archive = dist.join(format!("{host_package}-{version}.tgz"));
+    let root_archive = dist.join(format!("{BINARY}-{version}.tgz"));
+    anyhow::ensure!(platform_archive.is_file(), "run `cargo xtask npm pack` first");
+    anyhow::ensure!(root_archive.is_file(), "run `cargo xtask npm pack` first");
+
+    run(root, "npm", global_install_arguments(&root_archive, &platform_archive))?;
+    let prefix_output = output(root, "npm", ["prefix", "--global"])?;
+    let prefix = PathBuf::from(prefix_output.trim());
+    let launcher = prefix.join("bin/eas-mail-mcp");
+    run(root, launcher.to_string_lossy().as_ref(), ["--version", "--verbose"])?;
+    let native_path = output(root, launcher.to_string_lossy().as_ref(), ["native-path"])?;
+    anyhow::ensure!(
+        native_path.contains(host_package),
+        "candidate selected the wrong native package"
+    );
     Ok(())
 }
 
@@ -104,7 +128,13 @@ fn copy_package_files(root: &Path, destination: &Path, package: &str) -> Result<
     Ok(())
 }
 
-fn pack_package(package_root: &Path, dist: &Path, package: &str, version: &str) -> Result<PathBuf> {
+fn pack_package(
+    root: &Path,
+    package_root: &Path,
+    dist: &Path,
+    package: &str,
+    version: &str,
+) -> Result<PathBuf> {
     let destination = dist.to_string_lossy().into_owned();
     run(
         package_root,
@@ -113,14 +143,14 @@ fn pack_package(package_root: &Path, dist: &Path, package: &str, version: &str) 
     )?;
     let archive = dist.join(format!("{package}-{version}.tgz"));
     anyhow::ensure!(archive.is_file(), "npm did not create {}", archive.display());
-    verify_archive(package_root, &archive)?;
+    verify_archive(root, package_root, &archive, package)?;
     Ok(archive)
 }
 
-fn verify_archive(package_root: &Path, archive: &Path) -> Result<()> {
-    let package: serde_json::Value =
+fn verify_archive(root: &Path, package_root: &Path, archive: &Path, package: &str) -> Result<()> {
+    let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(package_root.join("package.json"))?)?;
-    let files = package
+    let files = manifest
         .get("files")
         .and_then(serde_json::Value::as_array)
         .context("npm package files list is missing")?;
@@ -136,6 +166,19 @@ fn verify_archive(package_root: &Path, archive: &Path) -> Result<()> {
         output(package_root, "tar", arguments)?.lines().map(str::to_owned).collect::<Vec<_>>();
     actual.sort();
     anyhow::ensure!(actual == expected, "npm archive contains unexpected files");
+    let audit_root = archive
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("npm archive parent is missing"))?
+        .join("audit")
+        .join(package);
+    prepare_directory(&audit_root)?;
+    run(
+        package_root,
+        "tar",
+        ["-xzf".as_ref(), archive.as_os_str(), "-C".as_ref(), audit_root.as_os_str()],
+    )?;
+    crate::public_audit::audit_tree(root, &audit_root, "unpacked npm package")?;
+    fs::remove_dir_all(&audit_root)?;
     Ok(())
 }
 
@@ -154,11 +197,7 @@ fn smoke_install(
     root_archive: &Path,
     archives: &[PathBuf],
 ) -> Result<()> {
-    let host_package = if cfg!(target_arch = "aarch64") {
-        "eas-mail-mcp-darwin-arm64"
-    } else {
-        "eas-mail-mcp-darwin-x64"
-    };
+    let host_package = host_package();
     let platform_archive = archives
         .iter()
         .find(|path| {
@@ -188,6 +227,27 @@ fn smoke_install(
         "native-path did not select {host_package}"
     );
     Ok(())
+}
+
+fn host_package() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "eas-mail-mcp-darwin-arm64"
+    } else {
+        "eas-mail-mcp-darwin-x64"
+    }
+}
+
+fn global_install_arguments(root: &Path, platform: &Path) -> Vec<OsString> {
+    [
+        "install".into(),
+        "--ignore-scripts".into(),
+        "--no-audit".into(),
+        "--no-fund".into(),
+        "--global".into(),
+        platform.as_os_str().to_owned(),
+        root.as_os_str().to_owned(),
+    ]
+    .into()
 }
 
 fn install_arguments(prefix: &Path, root: &Path, platform: &Path) -> Vec<OsString> {

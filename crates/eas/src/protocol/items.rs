@@ -1,13 +1,31 @@
 use base64::Engine as _;
 
 use crate::wbxml::{decode, encode};
-use crate::{EasError, ItemResult, Result, SearchMail};
+use crate::{
+    CalendarItemResult, EasError, ItemResult, Result, SearchCalendar, SearchCalendarPage,
+    SearchMail,
+};
 
-use super::sync::parse_mail_fields;
+use super::sync::{parse_calendar_fields, parse_mail_fields};
 use super::tree::{descendant_text, direct_text, element, integer, push_text};
 
 /// Builds a server-side mailbox Search request with a 500-character plain preview.
 pub fn build_search(
+    query: &str,
+    start: usize,
+    limit: usize,
+    preview_size: usize,
+) -> Result<Vec<u8>> {
+    build_class_search("Email", query, start, limit, preview_size)
+}
+
+/// Builds a bounded server-side Calendar Search request without a body preview.
+pub fn build_calendar_search(query: &str, start: usize, limit: usize) -> Result<Vec<u8>> {
+    build_class_search("Calendar", query, start, limit, 0)
+}
+
+fn build_class_search(
+    class: &str,
     query: &str,
     start: usize,
     limit: usize,
@@ -24,7 +42,7 @@ pub fn build_search(
     push_text(&mut store, "Search", "Name", "Mailbox");
     let mut query_element = element("Search", "Query");
     let mut conjunction = element("Search", "And");
-    push_text(&mut conjunction, "AirSync", "Class", "Email");
+    push_text(&mut conjunction, "AirSync", "Class", class);
     push_text(&mut conjunction, "Search", "FreeText", query);
     query_element.push(conjunction);
     store.push(query_element);
@@ -42,23 +60,66 @@ pub fn build_search(
 
 /// Parses ordered server-side mail search results.
 pub fn parse_search(data: &[u8]) -> Result<Vec<SearchMail>> {
+    parse_search_results(data, |properties| SearchMail {
+        long_id: String::new(),
+        fields: parse_mail_fields(properties),
+    })
+    .map(|(items, _)| items)
+}
+
+/// Parses ordered server-side Calendar Search results and their total count.
+pub fn parse_calendar_search(data: &[u8]) -> Result<SearchCalendarPage> {
+    let (items, total) = parse_search_results(data, |properties| SearchCalendar {
+        long_id: String::new(),
+        fields: parse_calendar_fields(properties),
+    })?;
+    Ok(SearchCalendarPage { items, total })
+}
+
+fn parse_search_results<T>(
+    data: &[u8],
+    parse: impl Fn(&crate::wbxml::Element) -> T,
+) -> Result<(Vec<T>, usize)>
+where
+    T: SearchResult,
+{
     let Some(root) = decode(data)? else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let status = integer(descendant_text(&root, "Search", "Status"), 0);
     if status != 1 {
         return Err(EasError::Protocol(format!("Search status is {status}")));
     }
+    let total =
+        descendant_text(&root, "Search", "Total").and_then(|value| value.parse().ok()).unwrap_or(0);
     let mut output = Vec::new();
     for result in root.descendants("Search", "Result") {
         let long_id = direct_text(result, "Search", "LongId").unwrap_or_default();
         if let Some(properties) = result.child("Search", "Properties")
             && !long_id.is_empty()
         {
-            output.push(SearchMail { long_id, fields: parse_mail_fields(properties) });
+            let mut item = parse(properties);
+            item.set_long_id(long_id);
+            output.push(item);
         }
     }
-    Ok(output)
+    Ok((output, total))
+}
+
+trait SearchResult {
+    fn set_long_id(&mut self, value: String);
+}
+
+impl SearchResult for SearchMail {
+    fn set_long_id(&mut self, value: String) {
+        self.long_id = value;
+    }
+}
+
+impl SearchResult for SearchCalendar {
+    fn set_long_id(&mut self, value: String) {
+        self.long_id = value;
+    }
 }
 
 /// Builds an ItemOperations fetch by LongId or collection/server IDs.
@@ -103,6 +164,17 @@ pub fn build_item_fetch(
 
 /// Parses a full ItemOperations mail result.
 pub fn parse_item_fetch(data: &[u8]) -> Result<ItemResult> {
+    parse_item_properties(data)
+        .map(|properties| ItemResult { fields: parse_mail_fields(&properties) })
+}
+
+/// Parses a full ItemOperations calendar result.
+pub fn parse_calendar_item_fetch(data: &[u8]) -> Result<CalendarItemResult> {
+    parse_item_properties(data)
+        .map(|properties| CalendarItemResult { fields: parse_calendar_fields(&properties) })
+}
+
+fn parse_item_properties(data: &[u8]) -> Result<crate::wbxml::Element> {
     let root = decode(data)?
         .ok_or_else(|| EasError::Protocol("Exchange returned an empty ItemOperations".into()))?;
     let fetch = root
@@ -112,10 +184,10 @@ pub fn parse_item_fetch(data: &[u8]) -> Result<ItemResult> {
     if status != 1 {
         return Err(EasError::Protocol(format!("ItemOperations status is {status}")));
     }
-    let properties = fetch
+    fetch
         .child("ItemOperations", "Properties")
-        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Properties".into()))?;
-    Ok(ItemResult { fields: parse_mail_fields(properties) })
+        .cloned()
+        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Properties".into()))
 }
 
 /// Builds an on-demand attachment fetch.

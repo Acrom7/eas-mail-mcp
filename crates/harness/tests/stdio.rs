@@ -10,7 +10,7 @@ use rmcp::service::{Peer, RoleClient};
 use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 16] = [
+const TOOLS: [&str; 17] = [
     "accounts_list",
     "folders_list",
     "sync_status",
@@ -20,7 +20,8 @@ const TOOLS: [&str; 16] = [
     "mail_get",
     "mail_list_attachments",
     "mail_download_attachment",
-    "calendar_list",
+    "calendar_availability",
+    "calendar_find_slots",
     "calendar_search",
     "calendar_get",
     "mail_mark_read",
@@ -52,28 +53,14 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     let names = tools.iter().map(|tool| tool.name.as_ref()).collect::<BTreeSet<_>>();
     let expected = TOOLS.into_iter().collect::<BTreeSet<_>>();
     anyhow::ensure!(names == expected, "unexpected tool contract: {names:?}");
-    anyhow::ensure!(tools.iter().all(|tool| tool.output_schema.is_some()), "missing output schema");
-    let schemas = serde_json::to_value(&tools)?;
-    anyhow::ensure!(
-        !contains_unsigned_format(&schemas),
-        "tool schemas expose non-portable unsigned integer formats"
-    );
-    let send_schema = tools
-        .iter()
-        .find(|tool| tool.name == "mail_send")
-        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
-        .context("mail_send schema is missing")?;
-    anyhow::ensure!(
-        send_schema.pointer("/properties/body/maxLength").and_then(Value::as_u64) == Some(50_000),
-        "mail_send body schema is missing the 50,000 character limit"
-    );
+    verify_tool_schemas(&tools)?;
     let invalid = call_result(&peer, "mail_get", Some(json!({}))).await?;
     anyhow::ensure!(invalid.is_error == Some(true), "invalid input did not fail schema validation");
 
     call(&peer, "accounts_list", None).await?;
     call(&peer, "folders_list", Some(json!({}))).await?;
     call(&peer, "sync_status", Some(json!({}))).await?;
-    call(&peer, "sync_now", Some(json!({ "scope": "all" }))).await?;
+    call(&peer, "sync_now", Some(json!({}))).await?;
 
     let mail_page = call(&peer, "mail_list", Some(json!({ "limit": 1 }))).await?;
     let mail_ref = text_at(&mail_page, "/data/items/0/mail_ref")?;
@@ -85,10 +72,7 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     call(&peer, "mail_download_attachment", Some(json!({ "attachment_ref": attachment_ref })))
         .await?;
 
-    let calendar_page = call(&peer, "calendar_list", Some(json!({ "limit": 1 }))).await?;
-    let event_ref = text_at(&calendar_page, "/data/items/0/event_ref")?;
-    call(&peer, "calendar_search", Some(json!({ "query": "planning" }))).await?;
-    call(&peer, "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
+    exercise_calendar(&peer).await?;
 
     call(
         &peer,
@@ -134,6 +118,88 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     .await?;
 
     client.cancel().await?;
+    Ok(())
+}
+
+fn verify_tool_schemas(tools: &[rmcp::model::Tool]) -> Result<()> {
+    anyhow::ensure!(tools.iter().all(|tool| tool.output_schema.is_some()), "missing output schema");
+    let schemas = serde_json::to_value(tools)?;
+    anyhow::ensure!(
+        !contains_unsigned_format(&schemas),
+        "tool schemas expose non-portable unsigned integer formats"
+    );
+    let send_schema = tools
+        .iter()
+        .find(|tool| tool.name == "mail_send")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("mail_send schema is missing")?;
+    anyhow::ensure!(
+        send_schema.pointer("/properties/body/maxLength").and_then(Value::as_u64) == Some(50_000),
+        "mail_send body schema is missing the 50,000 character limit"
+    );
+    let sync_schema = tools
+        .iter()
+        .find(|tool| tool.name == "sync_now")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("sync_now schema is missing")?;
+    anyhow::ensure!(
+        sync_schema.pointer("/properties/scope").is_none(),
+        "sync_now still exposes the removed calendar scope"
+    );
+    let availability_schema = tools
+        .iter()
+        .find(|tool| tool.name == "calendar_availability")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("calendar_availability schema is missing")?;
+    anyhow::ensure!(
+        availability_schema.pointer("/properties/participants/minItems").and_then(Value::as_u64)
+            == Some(1)
+            && availability_schema
+                .pointer("/properties/participants/maxItems")
+                .and_then(Value::as_u64)
+                == Some(20),
+        "calendar availability schema is missing participant bounds"
+    );
+    let slots_schema = tools
+        .iter()
+        .find(|tool| tool.name == "calendar_find_slots")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("calendar_find_slots schema is missing")?;
+    anyhow::ensure!(
+        slots_schema.pointer("/properties/duration_minutes/minimum").and_then(Value::as_u64)
+            == Some(15)
+            && slots_schema.pointer("/properties/duration_minutes/maximum").and_then(Value::as_u64)
+                == Some(480),
+        "calendar slot schema is missing duration bounds"
+    );
+    Ok(())
+}
+
+async fn exercise_calendar(peer: &Peer<RoleClient>) -> Result<()> {
+    let availability = json!({
+        "participants": ["example@example.invalid"],
+        "date_from": "2026-08-03",
+        "date_to": "2026-08-03",
+        "time_zone": "UTC",
+        "working_hours": [{ "weekdays": ["mon"], "start": "09:00", "end": "18:00" }]
+    });
+    call(peer, "calendar_availability", Some(availability)).await?;
+    call(
+        peer,
+        "calendar_find_slots",
+        Some(json!({
+            "participants": ["example@example.invalid"],
+            "date_from": "2026-08-03",
+            "date_to": "2026-08-03",
+            "time_zone": "UTC",
+            "working_hours": [{ "weekdays": ["mon"], "start": "09:00", "end": "18:00" }],
+            "duration_minutes": 60
+        })),
+    )
+    .await?;
+    let page = call(peer, "calendar_search", Some(json!({ "query": "planning" }))).await?;
+    let event_ref = text_at(&page, "/data/items/0/event_ref")?;
+    call(peer, "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
     Ok(())
 }
 

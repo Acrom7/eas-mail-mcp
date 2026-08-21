@@ -12,6 +12,8 @@ pub type Result<T> = std::result::Result<T, AppError>;
 pub enum ErrorCode {
     /// Account credentials are absent or rejected.
     AuthRequired,
+    /// Exchange denied EAS access after reaching the managed endpoint.
+    AccessDenied,
     /// Current network cannot reach the managed endpoint.
     NetworkUnreachable,
     /// Configuration is invalid.
@@ -24,6 +26,14 @@ pub enum ErrorCode {
     ReferenceExpired,
     /// Input violates an application limit.
     ValidationFailed,
+    /// The selected Exchange server does not support the requested feature.
+    FeatureUnavailable,
+    /// More than one configured account could serve this request.
+    AccountSelectionRequired,
+    /// A complete response would exceed the public output limit.
+    ResultTooLarge,
+    /// A command requires an interactive terminal or complete explicit arguments.
+    InteractiveRequired,
     /// Exchange returned an invalid response.
     ProtocolError,
     /// State changed and the caller should obtain a fresh reference.
@@ -36,6 +46,33 @@ pub enum ErrorCode {
     IdempotencyConflict,
     /// Local secure storage failed.
     StorageError,
+}
+
+impl ErrorCode {
+    /// Returns the stable serialized error code used by CLI and MCP responses.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AuthRequired => "AUTH_REQUIRED",
+            Self::AccessDenied => "ACCESS_DENIED",
+            Self::NetworkUnreachable => "NETWORK_UNREACHABLE",
+            Self::ConfigInvalid => "CONFIG_INVALID",
+            Self::PolicyBlocked => "POLICY_BLOCKED",
+            Self::NotFound => "NOT_FOUND",
+            Self::ReferenceExpired => "REFERENCE_EXPIRED",
+            Self::ValidationFailed => "VALIDATION_FAILED",
+            Self::FeatureUnavailable => "FEATURE_UNAVAILABLE",
+            Self::AccountSelectionRequired => "ACCOUNT_SELECTION_REQUIRED",
+            Self::ResultTooLarge => "RESULT_TOO_LARGE",
+            Self::InteractiveRequired => "INTERACTIVE_REQUIRED",
+            Self::ProtocolError => "PROTOCOL_ERROR",
+            Self::SyncStale => "SYNC_STALE",
+            Self::OutcomeUnknown => "OUTCOME_UNKNOWN",
+            Self::RemoteWipe => "REMOTE_WIPE",
+            Self::IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
+            Self::StorageError => "STORAGE_ERROR",
+        }
+    }
 }
 
 /// Stable structured error returned by every tool.
@@ -114,9 +151,21 @@ impl From<EasError> for AppError {
             EasError::Authentication => {
                 Self::new(ErrorCode::AuthRequired, "Exchange rejected the account credentials")
             }
+            EasError::AccessDenied => Self::new(
+                ErrorCode::AccessDenied,
+                "Exchange denied ActiveSync access for this account",
+            )
+            .remediation(
+                "Ask the Exchange administrator to verify EAS access and client allowlisting",
+            ),
             EasError::Network(_) => Self::new(
                 ErrorCode::NetworkUnreachable,
                 "Cannot reach the managed Exchange endpoint",
+            )
+            .retryable(),
+            EasError::ServiceUnavailable => Self::new(
+                ErrorCode::ProtocolError,
+                "Exchange availability service is temporarily unavailable",
             )
             .retryable(),
             EasError::OutcomeUnknown => {

@@ -2,6 +2,7 @@ mod calendar;
 mod convert;
 mod outgoing;
 mod reads;
+mod schedule;
 mod writes;
 
 use std::collections::{BTreeMap, BTreeSet};

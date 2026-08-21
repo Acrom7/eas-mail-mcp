@@ -1,14 +1,15 @@
 mod input;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use eas_mail_profile::{ProfileBundle, TrustSpec, VerifiedBundle};
+use eas_mail_profile::{CURRENT_SCHEMA_VERSION, ProfileBundle, TrustSpec, VerifiedBundle};
 use eas_mail_protocol::{ProfileKey, ProfileRegistry};
 
+use super::terminal::{StdioTerminal, Terminal};
 use super::{
     ProfileAddArgs, ProfileCommand, ProfileExportArgs, ProfileImportArgs, ProfileRemoveArgs,
-    ProfileValidateArgs, confirm, prompt,
+    ProfileValidateArgs, confirm,
 };
 use crate::platform;
 use crate::profiles::save_profile_bundle;
@@ -27,13 +28,17 @@ pub(super) fn run(paths: &Paths, command: ProfileCommand) -> Result<serde_json::
     }
 }
 
-pub(super) fn ensure_for_setup(
+pub(super) fn ensure_for_setup_with_terminal(
     paths: &Paths,
     import_file: Option<&Path>,
+    terminal: &mut dyn Terminal,
 ) -> Result<(ProfileRegistry, serde_json::Value)> {
     if let Some(file) = import_file {
-        let result =
-            import(paths, ProfileImportArgs { file: file.to_owned(), replace: false, yes: false })?;
+        let result = import_with_terminal(
+            paths,
+            ProfileImportArgs { file: file.to_owned(), replace: false, yes: false },
+            terminal,
+        )?;
         let registry = crate::profiles::require_profile_registry(&paths.profiles)?;
         return Ok((registry, result));
     }
@@ -41,40 +46,50 @@ pub(super) fn ensure_for_setup(
         let registry = ProfileRegistry::from_verified(&bundle).map_err(AppError::from)?;
         return Ok((registry, summary(&bundle, "reused", bundle.manifest.profiles.len())));
     }
-    let result = match prompt("Profile source (import/manual)")?.to_ascii_lowercase().as_str() {
-        "import" | "i" => {
-            let file = Path::new(&prompt("Profile TOML path")?).to_owned();
-            import(paths, ProfileImportArgs { file, replace: false, yes: false })?
-        }
-        "manual" | "m" => add(
+    let result = match terminal.select(
+        "No endpoint profiles are configured",
+        &["Import a profile file".into(), "Create a profile manually".into()],
+        0,
+    )? {
+        0 => import_from_prompt(paths, terminal)?,
+        1 => add_with_terminal(
             paths,
             ProfileAddArgs {
                 id: None,
                 display_name: None,
                 host: None,
                 email_domains: Vec::new(),
+                identity_mode: None,
                 username_realm: None,
+                username_hint: None,
                 device_id_length: None,
                 pem: None,
             },
+            terminal,
         )?,
-        _ => {
-            return Err(AppError::new(
-                ErrorCode::ValidationFailed,
-                "profile source must be import or manual",
-            ));
-        }
+        _ => return Err(AppError::new(ErrorCode::ValidationFailed, "profile source is invalid")),
     };
     let registry = crate::profiles::require_profile_registry(&paths.profiles)?;
     Ok((registry, result))
 }
 
 fn import(paths: &Paths, arguments: ProfileImportArgs) -> Result<serde_json::Value> {
+    import_with_terminal(paths, arguments, &mut StdioTerminal::detect())
+}
+
+pub(super) fn import_with_terminal(
+    paths: &Paths,
+    arguments: ProfileImportArgs,
+    terminal: &mut dyn Terminal,
+) -> Result<serde_json::Value> {
     let incoming = load_external(&arguments.file)?;
     let current = load_profile_bundle(&paths.profiles)?;
     let (candidate, conflicts, changed_lengths) =
         merge(current.as_ref(), &incoming, arguments.replace)?;
-    if !conflicts.is_empty() && !arguments.yes && !confirm("Replace conflicting profiles")? {
+    if !conflicts.is_empty()
+        && !arguments.yes
+        && !terminal.confirm("Replace conflicting profiles", false)?
+    {
         return Err(AppError::new(
             ErrorCode::ValidationFailed,
             "profile replacement was cancelled",
@@ -85,8 +100,53 @@ fn import(paths: &Paths, arguments: ProfileImportArgs) -> Result<serde_json::Val
     Ok(summary(&verified, "imported", incoming.manifest.profiles.len()))
 }
 
+pub(super) fn import_from_prompt(
+    paths: &Paths,
+    terminal: &mut dyn Terminal,
+) -> Result<serde_json::Value> {
+    loop {
+        let file = input_path(&terminal.input("Profile TOML path", None)?);
+        match import_with_terminal(
+            paths,
+            ProfileImportArgs { file, replace: false, yes: false },
+            terminal,
+        ) {
+            Ok(result) => return Ok(result),
+            Err(error)
+                if matches!(
+                    error.envelope.code,
+                    ErrorCode::NotFound | ErrorCode::ConfigInvalid
+                ) =>
+            {
+                terminal.message(&error.envelope.message)?;
+                if let Some(remediation) = error.envelope.remediation.as_deref() {
+                    terminal.message(remediation)?;
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+pub(super) fn input_path(value: &str) -> PathBuf {
+    let trimmed = value.trim().trim_matches(['\'', '"']);
+    if let Some(suffix) = trimmed.strip_prefix("~/") {
+        return dirs::home_dir()
+            .map_or_else(|| Path::new(trimmed).to_owned(), |home| home.join(suffix));
+    }
+    Path::new(trimmed).to_owned()
+}
+
 fn add(paths: &Paths, arguments: ProfileAddArgs) -> Result<serde_json::Value> {
-    let profile = interactive_profile(arguments)?;
+    add_with_terminal(paths, arguments, &mut StdioTerminal::detect())
+}
+
+pub(super) fn add_with_terminal(
+    paths: &Paths,
+    arguments: ProfileAddArgs,
+    terminal: &mut dyn Terminal,
+) -> Result<serde_json::Value> {
+    let profile = interactive_profile(arguments, terminal)?;
     let current = load_profile_bundle(&paths.profiles)?;
     if current
         .as_ref()
@@ -109,7 +169,7 @@ fn validate(paths: &Paths, arguments: ProfileValidateArgs) -> Result<serde_json:
     Ok(summary(&bundle, "validated", bundle.manifest.profiles.len()))
 }
 
-fn list(paths: &Paths) -> Result<serde_json::Value> {
+pub(super) fn list(paths: &Paths) -> Result<serde_json::Value> {
     let Some(bundle) = load_profile_bundle(&paths.profiles)? else {
         return Ok(serde_json::json!({ "profiles": [] }));
     };
@@ -123,7 +183,9 @@ fn list(paths: &Paths) -> Result<serde_json::Value> {
                 "display_name": profile.display_name,
                 "host": profile.host,
                 "email_domains": profile.email_domains,
-                "username_realm": profile.username_realm,
+                "identity_mode": profile.identity.mode,
+                "username_realm": profile.identity.realm,
+                "username_hint": profile.identity.username_hint,
                 "device_id_length": profile.device_id_length,
                 "trust": trust_name(&profile.trust),
             })
@@ -133,7 +195,10 @@ fn list(paths: &Paths) -> Result<serde_json::Value> {
 }
 
 fn export(paths: &Paths, arguments: ProfileExportArgs) -> Result<serde_json::Value> {
-    let bundle = load_profile_bundle(&paths.profiles)?.ok_or_else(no_profiles)?;
+    let mut bundle = load_profile_bundle(&paths.profiles)?.ok_or_else(no_profiles)?;
+    if bundle.source_schema_version < CURRENT_SCHEMA_VERSION {
+        bundle = save_profile_bundle(&paths.profiles, &bundle.manifest)?;
+    }
     let manifest = selected_export(&bundle.manifest, arguments.id.as_ref())?;
     let document = eas_mail_profile::serialize(&manifest).map_err(profile_error)?;
     platform::atomic_write_in_existing_directory(&arguments.file, document.as_bytes())
@@ -241,11 +306,25 @@ fn selected_export(bundle: &ProfileBundle, id: Option<&ProfileKey>) -> Result<Pr
 }
 
 fn load_external(path: &Path) -> Result<VerifiedBundle> {
+    match path.try_exists() {
+        Ok(false) => {
+            return Err(AppError::new(ErrorCode::NotFound, "profile file does not exist")
+                .remediation("Check the profile path and try again"));
+        }
+        Ok(true) => {}
+        Err(_) => {
+            return Err(AppError::new(ErrorCode::StorageError, "profile file cannot be accessed"));
+        }
+    }
     eas_mail_profile::load(path).map_err(profile_error)
 }
 
 fn empty_bundle() -> ProfileBundle {
-    ProfileBundle { schema_version: 1, bundle_version: "local-1".into(), profiles: Vec::new() }
+    ProfileBundle {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        bundle_version: "local-1".into(),
+        profiles: Vec::new(),
+    }
 }
 
 fn summary(bundle: &VerifiedBundle, action: &str, count: usize) -> serde_json::Value {

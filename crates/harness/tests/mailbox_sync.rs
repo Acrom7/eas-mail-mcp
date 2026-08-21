@@ -10,12 +10,11 @@ use eas_mail_protocol::wbxml::{Element, encode};
 use eas_mail_protocol::{CollectionKind, Command, Patch, RequestSafety};
 
 use support::{
-    calendar_change, default_policy, folder_response, mail_change, mailbox, options, read,
-    sync_response,
+    default_policy, folder_response, mail_change, mailbox, options, read, sync_response,
 };
 
 #[tokio::test]
-async fn mail_and_calendar_snapshots_apply_ordered_changes() -> anyhow::Result<()> {
+async fn mail_snapshot_applies_ordered_changes_without_calendar_sync() -> anyhow::Result<()> {
     let calls = vec![
         options(),
         read(Command::FolderSync, build_folder_sync("0")?, folder_response("1", true)?),
@@ -41,16 +40,6 @@ async fn mail_and_calendar_snapshots_apply_ordered_changes() -> anyhow::Result<(
                 ],
             )?,
         ),
-        read(
-            Command::Sync,
-            build_sync("calendar", "0", CollectionKind::Calendar, 6, 500)?,
-            sync_response("calendar-1", 1, false, Vec::new())?,
-        ),
-        read(
-            Command::Sync,
-            build_sync("calendar", "calendar-1", CollectionKind::Calendar, 6, 500)?,
-            sync_response("calendar-2", 1, false, vec![calendar_change("event-1", "Planning")])?,
-        ),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
 
@@ -59,12 +48,6 @@ async fn mail_and_calendar_snapshots_apply_ordered_changes() -> anyhow::Result<(
     assert_eq!(
         mail.first().map(|item| &item.fields.subject),
         Some(&Patch::Value("Changed".into()))
-    );
-    let events = mailbox.list_calendar(None).await?;
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events.first().map(|item| &item.fields.subject),
-        Some(&Patch::Value("Planning".into()))
     );
     transport.verify_complete()?;
     Ok(())
@@ -109,16 +92,6 @@ async fn invalid_sync_key_bootstraps_then_fetches_changes() -> anyhow::Result<()
         refreshed.first().map(|item| &item.fields.subject),
         Some(&Patch::Value("New".into()))
     );
-    transport.verify_complete()?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn explicit_empty_sync_is_a_noop() -> anyhow::Result<()> {
-    let (mailbox, transport) = mailbox(Vec::new(), default_policy())?;
-    let result = mailbox.sync(false, false).await?;
-    assert_eq!(result.collections, 0);
-    assert_eq!(result.changes, 0);
     transport.verify_complete()?;
     Ok(())
 }
@@ -188,7 +161,7 @@ async fn explicit_sync_still_refreshes_every_mail_collection() -> anyhow::Result
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
 
-    assert_eq!(mailbox.sync(true, false).await?.collections, 3);
+    assert_eq!(mailbox.sync_mail().await?.collections, 3);
     transport.verify_complete()?;
     Ok(())
 }

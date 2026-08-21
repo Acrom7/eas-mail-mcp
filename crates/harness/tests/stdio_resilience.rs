@@ -43,13 +43,43 @@ async fn black_box_cursor_expiry_is_reported_through_stdio() -> Result<()> {
 }
 
 #[tokio::test]
+async fn black_box_calendar_event_reference_expires_after_fifteen_minutes() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let clock_file = directory.path().join("clock");
+    std::fs::write(&clock_file, "1700000000")?;
+    let client = start_server(None, Some(&clock_file)).await?;
+    let search = successful_call(
+        client.peer(),
+        "calendar_search",
+        Some(json!({ "query": "planning", "limit": 1 })),
+    )
+    .await?;
+    let event_ref = search
+        .pointer("/data/items/0/event_ref")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("calendar_search returned no event reference"))?;
+    std::fs::write(&clock_file, "1700000960")?;
+    let expired =
+        tool_call(client.peer(), "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
+    let structured = expired
+        .structured_content
+        .ok_or_else(|| anyhow::anyhow!("calendar_get returned no structured error"))?;
+    anyhow::ensure!(
+        structured.pointer("/error/code").and_then(Value::as_str) == Some("REFERENCE_EXPIRED"),
+        "unexpected calendar reference error: {structured}"
+    );
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn black_box_active_stdio_request_supports_timeout_and_explicit_cancellation() -> Result<()> {
     let client = start_server(Some(500), None).await?;
     let peer = client.peer().clone();
 
     let timed = peer
         .send_cancellable_request(
-            request("sync_now", Some(json!({ "scope": "all" })))?,
+            request("sync_now", Some(json!({})))?,
             PeerRequestOptions::with_timeout(Duration::from_millis(50)),
         )
         .await?
@@ -59,7 +89,7 @@ async fn black_box_active_stdio_request_supports_timeout_and_explicit_cancellati
 
     let pending = peer
         .send_cancellable_request(
-            request("sync_now", Some(json!({ "scope": "all" })))?,
+            request("sync_now", Some(json!({})))?,
             PeerRequestOptions::no_options(),
         )
         .await?;

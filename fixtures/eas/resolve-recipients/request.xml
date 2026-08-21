@@ -1,0 +1,1 @@
+<ResolveRecipients xmlns="ResolveRecipients"><To>user@example.invalid</To><Options><MaxAmbiguousRecipients>10</MaxAmbiguousRecipients><Availability><StartTime>2026-08-03T09:00:00.000Z</StartTime><EndTime>2026-08-03T10:00:00.000Z</EndTime></Availability></Options></ResolveRecipients>

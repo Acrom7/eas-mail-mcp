@@ -38,6 +38,18 @@ pub fn mailbox_with_store(
     Ok((mailbox, transport, secrets))
 }
 
+pub fn mailbox_unprovisioned(
+    calls: Vec<ExpectedCall>,
+) -> eas_mail_mcp::Result<(EasMailbox, Arc<ScriptedTransport>)> {
+    let policy = default_policy();
+    let transport = Arc::new(ScriptedTransport::new(calls));
+    let boundary: Arc<dyn Transport> = transport.clone();
+    let secret_boundary: Arc<dyn SecretStore> = Arc::new(secret_store(&policy));
+    let mailbox =
+        EasMailbox::with_transport("work".into(), account(), secret_boundary, boundary, 0, None)?;
+    Ok((mailbox, transport))
+}
+
 pub fn default_policy() -> PolicyDecision {
     evaluate_policy(&BTreeMap::new())
 }
@@ -59,6 +71,19 @@ pub fn options() -> ExpectedCall {
                 "ms-asprotocolcommands".into(),
                 "Provision,FolderSync,Sync,Search,ItemOperations,SendMail,SmartReply,SmartForward"
                     .into(),
+            ),
+        ]),
+    }
+}
+
+pub fn options_with_calendar() -> ExpectedCall {
+    ExpectedCall::Options {
+        status: 200,
+        headers: BTreeMap::from([
+            ("ms-asprotocolversions".into(), "14.1".into()),
+            (
+                "ms-asprotocolcommands".into(),
+                "Provision,FolderSync,Sync,Search,ItemOperations,ResolveRecipients".into(),
             ),
         ]),
     }

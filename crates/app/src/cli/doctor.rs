@@ -41,12 +41,23 @@ pub(super) async fn run(
                 secret,
                 registry,
             ) {
-                Ok(mailbox) => match mailbox.folders().await {
-                    Ok(folders) => serde_json::json!({
-                        "account_id": account_id,
-                        "status": "ok",
-                        "folders": folders.len(),
-                    }),
+                Ok(mailbox) => match mailbox.capabilities().await {
+                    Ok(capabilities) => match mailbox.folders().await {
+                        Ok(folders) => serde_json::json!({
+                            "account_id": account_id,
+                            "status": "ok",
+                            "folders": folders.len(),
+                            "capabilities": {
+                                "calendar_availability": if capabilities.calendar_availability {
+                                    "available"
+                                } else {
+                                    "unsupported"
+                                },
+                                "mail_writes": capabilities.mail_writes,
+                            },
+                        }),
+                        Err(error) => redacted_account_failure(&paths, account_id, error),
+                    },
                     Err(error) => redacted_account_failure(&paths, account_id, error),
                 },
                 Err(error) => redacted_account_failure(&paths, account_id, error),
@@ -85,7 +96,7 @@ fn redacted_failure(account_id: String, error: AppError) -> serde_json::Value {
     let code = serde_json::to_value(error.envelope.code)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| code(ErrorCode::ProtocolError).into());
+        .unwrap_or_else(|| ErrorCode::ProtocolError.as_str().into());
     serde_json::json!({
         "account_id": account_id,
         "status": "failed",
@@ -93,24 +104,6 @@ fn redacted_failure(account_id: String, error: AppError) -> serde_json::Value {
         "retryable": error.envelope.retryable,
         "remediation": error.envelope.remediation,
     })
-}
-
-const fn code(value: ErrorCode) -> &'static str {
-    match value {
-        ErrorCode::AuthRequired => "AUTH_REQUIRED",
-        ErrorCode::NetworkUnreachable => "NETWORK_UNREACHABLE",
-        ErrorCode::ConfigInvalid => "CONFIG_INVALID",
-        ErrorCode::PolicyBlocked => "POLICY_BLOCKED",
-        ErrorCode::NotFound => "NOT_FOUND",
-        ErrorCode::ReferenceExpired => "REFERENCE_EXPIRED",
-        ErrorCode::ValidationFailed => "VALIDATION_FAILED",
-        ErrorCode::ProtocolError => "PROTOCOL_ERROR",
-        ErrorCode::SyncStale => "SYNC_STALE",
-        ErrorCode::OutcomeUnknown => "OUTCOME_UNKNOWN",
-        ErrorCode::RemoteWipe => "REMOTE_WIPE",
-        ErrorCode::IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
-        ErrorCode::StorageError => "STORAGE_ERROR",
-    }
 }
 
 #[cfg(test)]

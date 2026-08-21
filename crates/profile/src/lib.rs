@@ -2,6 +2,7 @@
 
 #![deny(missing_docs)]
 
+mod legacy;
 mod validation;
 
 use std::fs;
@@ -13,11 +14,14 @@ use thiserror::Error;
 
 pub use validation::{certificate_fingerprint, normalize_fingerprint, valid_profile_key};
 
+/// Current portable profile schema version.
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
 /// Versioned collection of endpoint profiles stored in one portable TOML file.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileBundle {
-    /// Profile schema version. Version one is currently supported.
+    /// Canonical profile schema version.
     pub schema_version: u32,
     /// Operator-defined version shown in diagnostics.
     pub bundle_version: String,
@@ -37,12 +41,38 @@ pub struct ProfileSpec {
     pub host: String,
     /// Allowed mailbox email domains.
     pub email_domains: Vec<String>,
-    /// Required AD username realm, if the endpoint uses one.
-    pub username_realm: Option<String>,
+    /// How an authentication username is collected and normalized.
+    pub identity: IdentitySpec,
     /// Exact ASCII EAS Device ID length.
     pub device_id_length: u8,
     /// TLS trust configuration.
     pub trust: TrustSpec,
+}
+
+/// Authentication username rules supplied by a local endpoint profile.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentitySpec {
+    /// Username input mode.
+    pub mode: IdentityMode,
+    /// Required realm for `realm_username` mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+    /// Optional operator-provided hint shown by the setup wizard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username_hint: Option<String>,
+}
+
+/// Supported ways to construct the HTTP Basic authentication username.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityMode {
+    /// Use the mailbox email address as the authentication username.
+    Email,
+    /// Accept one username verbatim after trimming surrounding whitespace.
+    Username,
+    /// Prefix a short username with the profile's fixed realm.
+    RealmUsername,
 }
 
 /// Supported TLS trust modes.
@@ -69,6 +99,8 @@ pub struct VerifiedBundle {
     pub hash: String,
     /// Resolved source path when loaded from the filesystem.
     pub source: Option<PathBuf>,
+    /// Schema version found in the source bytes before any in-memory migration.
+    pub source_schema_version: u32,
 }
 
 /// A redacted profile validation error.
@@ -110,10 +142,17 @@ pub fn serialize(bundle: &ProfileBundle) -> Result<String, ProfileError> {
 }
 
 fn parse_bytes(input: &[u8]) -> Result<VerifiedBundle, ProfileError> {
-    let manifest = toml::from_slice::<ProfileBundle>(input).map_err(|_| ProfileError::Toml)?;
+    let source_schema_version = legacy::schema_version(input)?;
+    let manifest = match source_schema_version {
+        1 => legacy::parse_v1(input)?,
+        CURRENT_SCHEMA_VERSION => {
+            toml::from_slice::<ProfileBundle>(input).map_err(|_| ProfileError::Toml)?
+        }
+        _ => return Err(ProfileError::Invalid("unsupported schema_version".into())),
+    };
     validation::validate_manifest(&manifest)?;
     let hash = Sha256::digest(input).iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok(VerifiedBundle { manifest, hash, source: None })
+    Ok(VerifiedBundle { manifest, hash, source: None, source_schema_version })
 }
 
 #[cfg(test)]

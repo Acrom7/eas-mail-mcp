@@ -1,7 +1,7 @@
-use eas_mail_protocol::{CalendarFields, Patch};
+use eas_mail_protocol::Patch;
 
 use crate::backend::{BackendEvent, BackendMail};
-use crate::model::{CalendarEvent, MailDetail, MailSummary};
+use crate::model::{CalendarEvent, CalendarEventSummary, MailDetail, MailSummary};
 use crate::sanitize::{plain_text, truncate};
 use crate::{Result, Runtime};
 
@@ -28,32 +28,49 @@ impl Runtime {
             body_truncated: boolean(&mail.fields.body_truncated) || application_truncated,
         }
     }
-
-    pub(super) fn calendar_event(&self, event: BackendEvent) -> Result<CalendarEvent> {
-        let event_ref = self.references.insert_event(event.clone())?;
-        Ok(calendar_event(event_ref, &event.fields, &event))
-    }
 }
 
 pub(super) fn calendar_event(
     event_ref: String,
-    fields: &CalendarFields,
     event: &BackendEvent,
+    requested_limit: usize,
 ) -> CalendarEvent {
+    let fields = &event.fields;
+    let body = plain_text(string(&fields.body));
+    let (body, application_truncated) = truncate(&body, requested_limit);
     CalendarEvent {
         event_ref,
         account_id: event.account_id.clone(),
-        folder_id: event.folder_id.clone(),
-        subject: string(&fields.subject).to_owned(),
-        body: plain_text(string(&fields.body)),
-        starts_at: optional_datetime(&fields.starts_at),
-        ends_at: optional_datetime(&fields.ends_at),
+        subject: plain_text(string(&fields.subject)),
+        body,
+        body_truncated: boolean(&fields.body_truncated) || application_truncated,
+        starts_at: optional_datetime_string(&fields.starts_at),
+        ends_at: optional_datetime_string(&fields.ends_at),
         all_day: boolean(&fields.all_day),
-        location: string(&fields.location).to_owned(),
-        organizer: string(&fields.organizer).to_owned(),
-        attendees: list(&fields.attendees),
+        location: plain_text(string(&fields.location)),
+        organizer: plain_text(string(&fields.organizer)),
+        attendees: list(&fields.attendees).into_iter().map(|value| plain_text(&value)).collect(),
         recurrence: map(&fields.recurrence),
         exceptions: nested_map(&fields.exceptions),
+        untrusted_external_content: true,
+    }
+}
+
+pub(super) fn calendar_event_summary(
+    event_ref: String,
+    event: &BackendEvent,
+) -> CalendarEventSummary {
+    let fields = &event.fields;
+    CalendarEventSummary {
+        event_ref,
+        account_id: event.account_id.clone(),
+        subject: plain_text(string(&fields.subject)),
+        starts_at: optional_datetime_string(&fields.starts_at),
+        ends_at: optional_datetime_string(&fields.ends_at),
+        all_day: boolean(&fields.all_day),
+        location: plain_text(string(&fields.location)),
+        organizer: plain_text(string(&fields.organizer)),
+        attendee_count: u32::try_from(list(&fields.attendees).len()).unwrap_or(u32::MAX),
         untrusted_external_content: true,
     }
 }
@@ -129,4 +146,10 @@ fn optional_datetime(
         Patch::Value(value) => *value,
         Patch::Missing => None,
     }
+}
+
+fn optional_datetime_string(
+    value: &Patch<Option<chrono::DateTime<chrono::Utc>>>,
+) -> Option<String> {
+    optional_datetime(value).map(|item| item.to_rfc3339())
 }

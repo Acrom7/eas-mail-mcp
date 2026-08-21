@@ -1,0 +1,96 @@
+use chrono::{DateTime, Utc};
+use eas_mail_protocol::{Command, EasError, RecipientAvailability};
+
+use super::super::{BackendCalendarSearch, BackendEvent};
+use super::session::{EasMailbox, SessionState};
+use crate::{AppError, ErrorCode, Result};
+
+impl EasMailbox {
+    pub(super) async fn availability(
+        &self,
+        participants: &[String],
+        starts_at: DateTime<Utc>,
+        ends_at: DateTime<Utc>,
+    ) -> Result<Vec<RecipientAvailability>> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        self.require_calendar_availability(&state)?;
+        let mut result =
+            self.client.availability(state.policy_key, participants, starts_at, ends_at).await;
+        if matches!(result, Err(EasError::PolicyRefreshRequired)) {
+            self.refresh_policy(&mut state).await?;
+            result =
+                self.client.availability(state.policy_key, participants, starts_at, ends_at).await;
+        }
+        result.map_err(self.scoped_error())
+    }
+
+    pub(super) async fn search_events(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<BackendCalendarSearch> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        let mut result = self.client.search_calendar(state.policy_key, query, 0, limit).await;
+        if matches!(result, Err(EasError::PolicyRefreshRequired)) {
+            self.refresh_policy(&mut state).await?;
+            result = self.client.search_calendar(state.policy_key, query, 0, limit).await;
+        }
+        let page = result.map_err(self.scoped_error())?;
+        let events = page
+            .items
+            .into_iter()
+            .map(|event| BackendEvent {
+                account_id: self.account.account_id.clone(),
+                long_id: event.long_id,
+                fields: event.fields,
+            })
+            .collect();
+        Ok(BackendCalendarSearch { events, total: page.total })
+    }
+
+    pub(super) async fn fetch_event(
+        &self,
+        long_id: &str,
+        body_limit: usize,
+    ) -> Result<BackendEvent> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        let body_limit = body_limit.min(policy(&state)?.body_limit);
+        let mut result =
+            self.client.fetch_calendar_item(state.policy_key, long_id, body_limit).await;
+        if matches!(result, Err(EasError::PolicyRefreshRequired)) {
+            self.refresh_policy(&mut state).await?;
+            let body_limit = body_limit.min(policy(&state)?.body_limit);
+            result = self.client.fetch_calendar_item(state.policy_key, long_id, body_limit).await;
+        }
+        Ok(BackendEvent {
+            account_id: self.account.account_id.clone(),
+            long_id: long_id.to_owned(),
+            fields: result.map_err(self.scoped_error())?.fields,
+        })
+    }
+
+    fn require_calendar_availability(&self, state: &SessionState) -> Result<()> {
+        if state
+            .capabilities
+            .as_ref()
+            .is_some_and(|value| value.supports(Command::ResolveRecipients))
+        {
+            return Ok(());
+        }
+        Err(AppError::new(
+            ErrorCode::FeatureUnavailable,
+            "Exchange does not advertise ResolveRecipients availability",
+        )
+        .account(&self.account.account_id)
+        .remediation("Ask the Exchange administrator whether free/busy lookup is enabled"))
+    }
+}
+
+fn policy(state: &SessionState) -> Result<&eas_mail_protocol::protocol::PolicyDecision> {
+    state.policy.as_ref().ok_or_else(|| {
+        AppError::new(ErrorCode::ProtocolError, "process-local Exchange state is inconsistent")
+    })
+}

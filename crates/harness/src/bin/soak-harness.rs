@@ -110,9 +110,25 @@ async fn check_cycle(session: &RunningService<RoleClient, InitializeRequestParam
         items.iter().filter(|item| item.get("enabled") == Some(&Value::Bool(true))).count()
     });
     anyhow::ensure!(enabled >= 2, "soak requires both enabled managed accounts");
-    call(peer, "sync_now", arguments(json!({ "scope": "all" }))?).await?;
+    call(peer, "sync_now", Map::new()).await?;
     call(peer, "mail_list", arguments(json!({ "limit": 1 }))?).await?;
-    call(peer, "calendar_list", arguments(json!({ "limit": 1 }))?).await?;
+    let account = accounts
+        .pointer("/data/accounts/0")
+        .ok_or_else(|| anyhow::anyhow!("soak account metadata is missing"))?;
+    let account_id = account
+        .get("account_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("soak account id is missing"))?;
+    let email = account
+        .get("email")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("soak account email is missing"))?;
+    call(
+        peer,
+        "calendar_search",
+        arguments(json!({ "account_ids": [account_id], "query": email, "limit": 1 }))?,
+    )
+    .await?;
     let status = call(peer, "sync_status", Map::new()).await?;
     let reports = status.pointer("/data/reports").and_then(Value::as_array).map_or(0, Vec::len);
     anyhow::ensure!(reports >= 2, "both accounts must complete synchronization");

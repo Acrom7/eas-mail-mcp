@@ -120,8 +120,11 @@ impl HttpTransport {
         if (300..400).contains(&status) {
             return Err(EasError::Protocol("Exchange attempted an HTTP redirect".into()));
         }
-        if status == 401 || status == 403 {
+        if status == 401 {
             return Err(EasError::Authentication);
+        }
+        if status == 403 {
+            return Err(EasError::AccessDenied);
         }
         let headers = response
             .headers()

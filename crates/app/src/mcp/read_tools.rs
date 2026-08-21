@@ -5,9 +5,10 @@ use super::MailMcpServer;
 use crate::ApiResponse;
 use crate::model::{
     AccountSelection, AccountsData, AttachmentDownload, AttachmentDownloadInput, AttachmentsData,
-    CalendarEvent, CalendarGetInput, CalendarListInput, CalendarPage, CalendarSearchInput,
-    FoldersData, MailAttachmentsInput, MailDetail, MailGetInput, MailListInput, MailPage,
-    MailSearchInput, SyncData, SyncInput,
+    CalendarAvailabilityData, CalendarAvailabilityInput, CalendarEvent, CalendarFindSlotsInput,
+    CalendarGetInput, CalendarSearchData, CalendarSearchInput, CalendarSlotsData, FoldersData,
+    MailAttachmentsInput, MailDetail, MailGetInput, MailListInput, MailPage, MailSearchInput,
+    SyncData,
 };
 
 #[tool_router(router = read_tools, vis = "pub(crate)")]
@@ -57,7 +58,7 @@ impl MailMcpServer {
         Json(self.runtime.sync_status(input))
     }
 
-    /// Refreshes selected mail and calendar collections immediately.
+    /// Refreshes selected mail collections immediately.
     #[tool(
         name = "sync_now",
         annotations(
@@ -68,7 +69,7 @@ impl MailMcpServer {
     )]
     async fn sync_now(
         &self,
-        Parameters(input): Parameters<SyncInput>,
+        Parameters(input): Parameters<AccountSelection>,
     ) -> Json<ApiResponse<SyncData>> {
         Json(self.runtime.sync_now(input).await)
     }
@@ -145,19 +146,39 @@ impl MailMcpServer {
         Json(self.runtime.mail_download_attachment(input).await)
     }
 
-    /// Lists at most 100 events after refreshing all selected calendars.
+    /// Resolves directory recipients and returns compact 30-minute free/busy intervals.
     #[tool(
-        name = "calendar_list",
-        annotations(title = "List work calendar", read_only_hint = true, open_world_hint = true)
+        name = "calendar_availability",
+        annotations(
+            title = "Check calendar availability",
+            read_only_hint = true,
+            open_world_hint = true
+        )
     )]
-    async fn calendar_list(
+    async fn calendar_availability(
         &self,
-        Parameters(input): Parameters<CalendarListInput>,
-    ) -> Json<ApiResponse<CalendarPage>> {
-        Json(self.runtime.calendar_list(input).await)
+        Parameters(input): Parameters<CalendarAvailabilityInput>,
+    ) -> Json<ApiResponse<CalendarAvailabilityData>> {
+        Json(self.runtime.calendar_availability(input).await)
     }
 
-    /// Refreshes calendars and searches safe event fields in RAM.
+    /// Finds common free windows without returning other people's meeting content.
+    #[tool(
+        name = "calendar_find_slots",
+        annotations(
+            title = "Find common calendar slots",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_find_slots(
+        &self,
+        Parameters(input): Parameters<CalendarFindSlotsInput>,
+    ) -> Json<ApiResponse<CalendarSlotsData>> {
+        Json(self.runtime.calendar_find_slots(input).await)
+    }
+
+    /// Searches own-calendar event metadata directly through Exchange.
     #[tool(
         name = "calendar_search",
         annotations(title = "Search work calendar", read_only_hint = true, open_world_hint = true)
@@ -165,19 +186,19 @@ impl MailMcpServer {
     async fn calendar_search(
         &self,
         Parameters(input): Parameters<CalendarSearchInput>,
-    ) -> Json<ApiResponse<CalendarPage>> {
+    ) -> Json<ApiResponse<CalendarSearchData>> {
         Json(self.runtime.calendar_search(input).await)
     }
 
-    /// Resolves one process-local event reference without a write side effect.
+    /// Fetches one own-calendar event without a write side effect.
     #[tool(
         name = "calendar_get",
-        annotations(title = "Read calendar event", read_only_hint = true, open_world_hint = false)
+        annotations(title = "Read calendar event", read_only_hint = true, open_world_hint = true)
     )]
     async fn calendar_get(
         &self,
         Parameters(input): Parameters<CalendarGetInput>,
     ) -> Json<ApiResponse<CalendarEvent>> {
-        Json(self.runtime.calendar_get(input))
+        Json(self.runtime.calendar_get(input).await)
     }
 }

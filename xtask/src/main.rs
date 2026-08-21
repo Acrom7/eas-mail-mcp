@@ -102,6 +102,8 @@ enum NpmCommand {
     Verify,
     /// Builds both native binaries and creates installable npm tarballs.
     Pack,
+    /// Installs the locally packed host candidate into the global npm prefix.
+    InstallCandidate,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -123,6 +125,7 @@ fn main() -> anyhow::Result<()> {
         Task::Npm { command } => match command {
             NpmCommand::Verify => npm::verify(root),
             NpmCommand::Pack => npm::pack(root),
+            NpmCommand::InstallCandidate => npm::install_candidate(root),
         },
         Task::BuildBundles => delivery::build(root),
         Task::Live { self_write } => quality::live(root, self_write),

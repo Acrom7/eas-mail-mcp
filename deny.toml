@@ -24,6 +24,9 @@ skip = [
     # toml 0.9 and toml_edit 0.25 currently use adjacent parser generations.
     { name = "toml_datetime", version = "0.7.5" },
     { name = "winnow", version = "0.7.15" },
+    # chrono-tz 0.10 uses phf 0.12; html2text's parser stack uses phf 0.13.
+    { name = "phf", version = "0.12.1" },
+    { name = "phf_shared", version = "0.12.1" },
 ]
 
 [sources]

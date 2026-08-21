@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{AccountSecret, AppError, ErrorCode, KeychainStore, Paths, Result, SecretStore};
+use crate::{AccountSecret, KeychainStore, Paths, Result, SecretStore};
 
 pub(super) fn open(paths: &Paths) -> Arc<dyn SecretStore> {
     Arc::new(KeychainStore::new(paths.journal.clone()))
@@ -28,27 +28,6 @@ pub(super) fn replace_optional(
         Ok(())
     })?;
     Ok(previous)
-}
-
-pub(super) fn replace_password(
-    store: &Arc<dyn SecretStore>,
-    account_id: &str,
-    password: &str,
-) -> Result<(AccountSecret, AccountSecret)> {
-    let mut result = None;
-    store.update(&mut |bundle| {
-        let secret = bundle.accounts.get_mut(account_id).ok_or_else(|| {
-            AppError::new(ErrorCode::AuthRequired, "account credentials are missing")
-                .account(account_id)
-        })?;
-        let original = secret.clone();
-        secret.password = password.to_owned();
-        secret.policy_key = 0;
-        secret.policy = None;
-        result = Some((original, secret.clone()));
-        Ok(())
-    })?;
-    result.ok_or_else(|| AppError::new(ErrorCode::StorageError, "secret update did not complete"))
 }
 
 pub(super) fn restore(
@@ -86,7 +65,10 @@ mod tests {
         let first = secret("fixture-value");
         assert!(replace(&store, "work", first.clone())?.is_none());
 
-        let (previous, candidate) = replace_password(&store, "work", "fixture")?;
+        let mut candidate = first.clone();
+        candidate.password = "fixture".into();
+        let previous = replace(&store, "work", candidate.clone())?
+            .ok_or_else(|| anyhow::anyhow!("previous secret is missing"))?;
         assert!(previous == first);
         restore(&store, "work", Some(&candidate), Some(&previous))?;
         assert!(store.load()?.accounts.get("work") == Some(&first));

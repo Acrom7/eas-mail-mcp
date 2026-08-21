@@ -151,7 +151,7 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<()> {
     platform::atomic_write(path, document.as_bytes()).map_err(storage_error)
 }
 
-fn valid_account_id(value: &str) -> bool {
+pub(crate) fn valid_account_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value

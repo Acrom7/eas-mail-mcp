@@ -1,4 +1,4 @@
-name: Publish npm
+name: Stage npm release
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  stage:
     runs-on: macos-15
     environment: npm
     steps:
@@ -37,8 +37,8 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Install current npm 11
-        run: npm install --global npm@11
+      - name: Install npm with staged publishing support
+        run: npm install --global 'npm@^11.15.0'
       - name: Build and smoke-test tarballs
         run: cargo xtask npm pack
       - name: Validate release tag
@@ -54,13 +54,22 @@ jobs:
             echo 'Stable versions must use the latest tag' >&2
             exit 1
           fi
-      - name: Publish native packages first
+      - name: Stage native packages
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
         run: |
-          npm publish dist/npm/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG" --provenance
-          npm publish dist/npm/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG" --provenance
-      - name: Publish root package last
+          npm stage publish dist/npm/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG"
+          npm stage publish dist/npm/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG"
+      - name: Stage root package
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
-        run: npm publish dist/npm/eas-mail-mcp-[0-9]*.tgz --access public --tag "$NPM_TAG" --provenance
+        run: npm stage publish dist/npm/eas-mail-mcp-[0-9]*.tgz --access public --tag "$NPM_TAG"
+      - name: Record review instructions
+        run: |
+          {
+            echo '### npm candidate staged'
+            echo
+            echo 'Download and install the three staged tarballs before approval.'
+            echo 'Approve both native packages first and the root package last.'
+            echo 'No package from this run is public until npm stage approval.'
+          } >> "$GITHUB_STEP_SUMMARY"

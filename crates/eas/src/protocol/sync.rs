@@ -159,7 +159,7 @@ pub(super) fn parse_mail_fields(application: &Element) -> MailFields {
     }
 }
 
-fn parse_calendar_fields(application: &Element) -> CalendarFields {
+pub(super) fn parse_calendar_fields(application: &Element) -> CalendarFields {
     let organizer = match string_patch(application, "Calendar", "OrganizerName") {
         Patch::Missing => string_patch(application, "Calendar", "OrganizerEmail"),
         value => value,
@@ -169,6 +169,10 @@ fn parse_calendar_fields(application: &Element) -> CalendarFields {
         body: application.child("AirSyncBase", "Body").map_or(Patch::Missing, |body| {
             Patch::Value(direct_text(body, "AirSyncBase", "Data").unwrap_or_default())
         }),
+        body_truncated: application
+            .child("AirSyncBase", "Body")
+            .and_then(|body| body.child("AirSyncBase", "Truncated"))
+            .map_or(Patch::Missing, |value| Patch::Value(value.text_content() == "1")),
         starts_at: datetime_patch(application, "StartTime"),
         ends_at: datetime_patch(application, "EndTime"),
         all_day: bool_patch(application, "Calendar", "AllDayEvent"),

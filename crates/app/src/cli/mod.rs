@@ -3,6 +3,8 @@ mod accounts;
 mod clients;
 mod doctor;
 mod profiles;
+mod setup;
+mod terminal;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -11,6 +13,7 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use eas_mail_protocol::ProfileKey;
 
+use self::terminal::{StdioTerminal, Terminal as _};
 use crate::profiles::require_profile_registry;
 use crate::{AppError, ErrorCode, Paths, Result, Runtime, load_config, load_profile_registry};
 
@@ -18,6 +21,9 @@ use crate::{AppError, ErrorCode, Paths, Result, Runtime, load_config, load_profi
 #[derive(Debug, Parser)]
 #[command(name = "eas-mail-mcp", about, disable_version_flag = true)]
 struct Cli {
+    /// Emit machine-readable JSON for administrative commands.
+    #[arg(long, global = true)]
+    json: bool,
     /// Print application version information.
     #[arg(long)]
     version: bool,
@@ -32,7 +38,7 @@ struct Cli {
 enum Command {
     /// Run the MCP server over stdin/stdout.
     Serve,
-    /// Interactively add one managed Exchange account.
+    /// Configure endpoint profiles, accounts, AI clients, and diagnostics.
     Setup(SetupArgs),
     /// Manage account configuration and Keychain credentials.
     Account {
@@ -97,15 +103,28 @@ struct ProfileAddArgs {
     /// Allowed mailbox domain; repeat for multiple domains.
     #[arg(long = "email-domain")]
     email_domains: Vec<String>,
-    /// Required AD username realm.
+    /// Authentication username input mode.
+    #[arg(long, value_enum)]
+    identity_mode: Option<ProfileIdentityMode>,
+    /// Required realm for realm-username mode; also enables that mode for compatibility.
     #[arg(long)]
     username_realm: Option<String>,
+    /// Optional username example or operator guidance.
+    #[arg(long)]
+    username_hint: Option<String>,
     /// Exact EAS Device ID length.
     #[arg(long)]
     device_id_length: Option<u8>,
     /// Exclusive PEM certificate file; omit to use the system trust store.
     #[arg(long)]
     pem: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ProfileIdentityMode {
+    Email,
+    Username,
+    RealmUsername,
 }
 
 #[derive(Debug, Args)]
@@ -188,16 +207,16 @@ enum AccountCommand {
 #[derive(Debug, Args)]
 struct AddAccountArgs {
     /// Stable local account identifier.
-    account_id: String,
+    account_id: Option<String>,
     /// Managed Exchange profile.
     #[arg(long)]
-    profile: ProfileKey,
+    profile: Option<ProfileKey>,
     /// Mailbox address.
     #[arg(long)]
-    email: String,
+    email: Option<String>,
     /// Exchange or AD username.
     #[arg(long)]
-    username: String,
+    username: Option<String>,
     /// Read the password from stdin instead of a terminal prompt.
     #[arg(long)]
     password_stdin: bool,
@@ -274,6 +293,10 @@ pub async fn run() -> Result<()> {
     }
     let paths = Paths::standard()?;
     paths.ensure()?;
+    let mut terminal = StdioTerminal::detect();
+    if cli.json {
+        terminal.disable_interaction();
+    }
     match command {
         Command::Serve => {
             let profiles = require_profile_registry(&paths.profiles)?;
@@ -283,10 +306,17 @@ pub async fn run() -> Result<()> {
                 AppError::new(ErrorCode::ProtocolError, "MCP stdio transport stopped unexpectedly")
             })
         }
-        Command::Setup(arguments) => emit(&setup(&paths, arguments).await?),
+        Command::Setup(arguments) => {
+            let value = setup::run(&paths, arguments, &mut terminal).await?;
+            if cli.json || !terminal.is_interactive() {
+                emit(&value)
+            } else {
+                terminal.message("Setup completed successfully")
+            }
+        }
         Command::Account { command } => {
             let profiles = load_profile_registry(&paths.profiles)?;
-            emit(&accounts::run(&paths, command, profiles.as_ref()).await?)
+            emit(&accounts::run(&paths, command, profiles.as_ref(), &mut terminal).await?)
         }
         Command::Doctor => {
             let profiles = load_profile_registry(&paths.profiles)?;
@@ -298,29 +328,6 @@ pub async fn run() -> Result<()> {
             Err(AppError::new(ErrorCode::ProtocolError, "native path command dispatch is invalid"))
         }
     }
-}
-
-async fn setup(paths: &Paths, arguments: SetupArgs) -> Result<serde_json::Value> {
-    let explicit_account = arguments.has_account_arguments();
-    let skip_clients = arguments.skip_clients;
-    let (profiles, profile_result) =
-        profiles::ensure_for_setup(paths, arguments.profile_file.as_deref())?;
-    let config = load_config(&paths.config)?;
-    let account_result = if explicit_account || config.accounts.is_empty() {
-        let request = accounts::interactive_request(arguments, &profiles)?;
-        accounts::add(paths, request, &profiles).await?
-    } else {
-        config.validate_profiles(&profiles)?;
-        serde_json::json!({ "reused": config.accounts.len() })
-    };
-    let clients = if skip_clients { Vec::new() } else { clients::configure_detected(paths)? };
-    let diagnostics = doctor::run(paths, Some(&profiles)).await?;
-    Ok(serde_json::json!({
-        "profiles": profile_result,
-        "accounts": account_result,
-        "clients": clients,
-        "doctor": diagnostics,
-    }))
 }
 
 fn emit_version(verbose: bool) -> Result<()> {
@@ -362,19 +369,6 @@ fn emit(value: &serde_json::Value) -> Result<()> {
         .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot write CLI output"))
 }
 
-fn prompt(label: &str) -> Result<String> {
-    let mut stderr = std::io::stderr().lock();
-    write!(stderr, "{label}: ")
-        .and_then(|()| stderr.flush())
-        .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot write terminal prompt"))?;
-    let mut value = String::new();
-    std::io::stdin()
-        .read_line(&mut value)
-        .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot read terminal input"))?;
-    Ok(value.trim().to_owned())
-}
-
 fn confirm(label: &str) -> Result<bool> {
-    let answer = prompt(&format!("{label} [y/N]"))?;
-    Ok(matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes"))
+    StdioTerminal::detect().confirm(label, false)
 }

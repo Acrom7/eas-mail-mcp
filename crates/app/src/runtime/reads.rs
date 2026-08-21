@@ -6,8 +6,7 @@ use crate::backend::BackendMail;
 use crate::model::{
     AccountSelection, AccountStatus, AccountsData, AttachmentDownload, AttachmentDownloadInput,
     AttachmentView, AttachmentsData, FolderView, FoldersData, MailAttachmentsInput, MailDetail,
-    MailGetInput, MailListInput, MailPage, MailSearchInput, SyncData, SyncInput, SyncReport,
-    SyncScope,
+    MailGetInput, MailListInput, MailPage, MailSearchInput, SyncData, SyncReport,
 };
 use crate::references::AttachmentReference;
 use crate::sanitize::limit;
@@ -45,8 +44,8 @@ impl Runtime {
         Self::response(self.sync_status_result(input))
     }
 
-    /// Explicitly synchronizes selected collections over EAS.
-    pub async fn sync_now(&self, input: SyncInput) -> ApiResponse<SyncData> {
+    /// Explicitly synchronizes selected mail collections over EAS.
+    pub async fn sync_now(&self, input: AccountSelection) -> ApiResponse<SyncData> {
         Self::response(self.sync_result(input).await)
     }
 
@@ -128,22 +127,21 @@ impl Runtime {
         Ok((SyncData { reports: output }, Vec::new()))
     }
 
-    async fn sync_result(&self, input: SyncInput) -> Result<(SyncData, Vec<crate::Warning>)> {
+    async fn sync_result(
+        &self,
+        input: AccountSelection,
+    ) -> Result<(SyncData, Vec<crate::Warning>)> {
         let backends = self.selected(input.account_ids.as_deref())?;
-        let scope = input.scope;
         let completed_at = self.clock.now();
         let results = join_all(backends.into_iter().map(|backend| async move {
             let account_id = backend.account().account_id;
-            let result = backend
-                .sync(scope != SyncScope::Calendar, scope != SyncScope::Mail)
-                .await
-                .map(|value| SyncReport {
-                    account_id: account_id.clone(),
-                    scope: scope_name(scope).into(),
-                    collections_synced: value.collections,
-                    changes_applied: value.changes,
-                    completed_at,
-                });
+            let result = backend.sync_mail().await.map(|value| SyncReport {
+                account_id: account_id.clone(),
+                scope: "mail".into(),
+                collections_synced: value.collections,
+                changes_applied: value.changes,
+                completed_at,
+            });
             (account_id, result)
         }))
         .await;
@@ -282,14 +280,6 @@ impl Runtime {
 
     fn mail_summaries(&self, mail: Vec<BackendMail>) -> Result<Vec<crate::MailSummary>> {
         mail.into_iter().map(|item| self.mail_summary(item)).collect()
-    }
-}
-
-fn scope_name(scope: SyncScope) -> &'static str {
-    match scope {
-        SyncScope::Mail => "mail",
-        SyncScope::Calendar => "calendar",
-        SyncScope::All => "all",
     }
 }
 

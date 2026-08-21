@@ -11,7 +11,8 @@ use self::configuration::{
 };
 use self::files::ClientFiles;
 use self::process::{client_name, detect_version};
-use super::{ClientArgs, ClientCommand, confirm};
+use super::terminal::Terminal;
+use super::{ClientArgs, ClientCommand};
 use crate::{AppError, ErrorCode, Paths, Result};
 
 const SERVER: &str = "eas-mail";
@@ -31,12 +32,15 @@ pub(super) fn run(paths: &Paths, command: ClientCommand) -> Result<Value> {
     }
 }
 
-pub(super) fn configure_detected(paths: &Paths) -> Result<Vec<Value>> {
+pub(super) fn configure_detected_with_terminal(
+    paths: &Paths,
+    terminal: &mut dyn Terminal,
+) -> Result<Vec<Value>> {
     let mut results = Vec::new();
     for client in [ClientKind::Codex, ClientKind::Claude, ClientKind::Opencode] {
         let executable = client_name(client).to_owned();
         let Some(version) = detect_version(&executable) else { continue };
-        if confirm(&format!("Configure {}", client_name(client)))? {
+        if terminal.confirm(&format!("Configure {}", client_name(client)), true)? {
             results.push(configure(paths, ClientArgs { client, executable: Some(executable) })?);
         } else {
             results.push(serde_json::json!({

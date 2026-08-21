@@ -5,10 +5,12 @@ use std::path::Path;
 use base64::Engine as _;
 use sha2::{Digest as _, Sha256};
 
-use crate::{ProfileBundle, ProfileError, TrustSpec};
+use crate::{
+    CURRENT_SCHEMA_VERSION, IdentityMode, IdentitySpec, ProfileBundle, ProfileError, TrustSpec,
+};
 
 pub(crate) fn validate_manifest(bundle: &ProfileBundle) -> Result<(), ProfileError> {
-    if bundle.schema_version != 1 {
+    if bundle.schema_version != CURRENT_SCHEMA_VERSION {
         return invalid("unsupported schema_version");
     }
     if !valid_token(&bundle.bundle_version, 64) {
@@ -43,13 +45,35 @@ pub(crate) fn validate_manifest(bundle: &ProfileBundle) -> Result<(), ProfileErr
                 return invalid("email domain is invalid or duplicated");
             }
         }
-        if profile.username_realm.as_deref().is_some_and(|realm| !valid_realm(realm)) {
-            return invalid("username_realm is invalid");
-        }
+        validate_identity(&profile.identity)?;
         if !matches!(profile.device_id_length, 16 | 32) {
             return invalid("device_id_length must be 16 or 32");
         }
         validate_trust(&profile.trust)?;
+    }
+    Ok(())
+}
+
+fn validate_identity(identity: &IdentitySpec) -> Result<(), ProfileError> {
+    match identity.mode {
+        IdentityMode::RealmUsername => {
+            if identity.realm.as_deref().is_none_or(|realm| !valid_realm(realm)) {
+                return invalid("realm_username identity requires a valid realm");
+            }
+        }
+        IdentityMode::Email | IdentityMode::Username => {
+            if identity.realm.is_some() {
+                return invalid("identity realm is only valid for realm_username mode");
+            }
+        }
+    }
+    if identity.username_hint.as_deref().is_some_and(|hint| {
+        hint.is_empty()
+            || hint.len() > 120
+            || hint.trim() != hint
+            || hint.chars().any(char::is_control)
+    }) {
+        return invalid("identity username_hint is invalid");
     }
     Ok(())
 }

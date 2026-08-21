@@ -1,9 +1,7 @@
+use crate::ErrorEnvelope;
 use chrono::{DateTime, Utc};
 use schemars::{JsonSchema, Schema};
 use serde::Serialize;
-use std::collections::BTreeMap;
-
-use crate::ErrorEnvelope;
 
 /// Account-scoped warning returned alongside partial results.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -92,7 +90,7 @@ pub struct FoldersData {
 pub struct SyncReport {
     /// Account ID.
     pub account_id: String,
-    /// Requested scope.
+    /// Synchronization scope, currently always `mail`.
     pub scope: String,
     /// Collections synchronized.
     #[schemars(transform = remove_numeric_format)]
@@ -195,48 +193,6 @@ pub struct AttachmentDownload {
     pub path: String,
     /// Expiry time; the process may delete the file sooner on shutdown.
     pub expires_at: DateTime<Utc>,
-}
-
-/// Read-only calendar event.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct CalendarEvent {
-    /// Process-local opaque reference.
-    pub event_ref: String,
-    /// Owning account ID.
-    pub account_id: String,
-    /// Exchange calendar folder ID.
-    pub folder_id: String,
-    /// Subject.
-    pub subject: String,
-    /// Sanitized plain-text body.
-    pub body: String,
-    /// Start time.
-    pub starts_at: Option<DateTime<Utc>>,
-    /// End time.
-    pub ends_at: Option<DateTime<Utc>>,
-    /// All-day marker.
-    pub all_day: bool,
-    /// Location.
-    pub location: String,
-    /// Organizer.
-    pub organizer: String,
-    /// Attendee addresses.
-    pub attendees: Vec<String>,
-    /// Recurrence fields from Exchange.
-    pub recurrence: BTreeMap<String, String>,
-    /// Recurrence exception fields.
-    pub exceptions: Vec<BTreeMap<String, String>>,
-    /// External content marker.
-    pub untrusted_external_content: bool,
-}
-
-/// Paginated calendar response payload.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct CalendarPage {
-    /// Calendar events.
-    pub items: Vec<CalendarEvent>,
-    /// Cursor for the same immutable snapshot.
-    pub next_cursor: Option<String>,
 }
 
 fn remove_numeric_format(schema: &mut Schema) {

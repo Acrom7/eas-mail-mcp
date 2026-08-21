@@ -1,0 +1,341 @@
+use std::collections::BTreeMap;
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// Weekday used by explicit scheduling windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ScheduleWeekday {
+    /// Monday.
+    Mon,
+    /// Tuesday.
+    Tue,
+    /// Wednesday.
+    Wed,
+    /// Thursday.
+    Thu,
+    /// Friday.
+    Fri,
+    /// Saturday.
+    Sat,
+    /// Sunday.
+    Sun,
+}
+
+/// One explicit local-time working interval applied to selected weekdays.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkingHoursInput {
+    /// Weekdays receiving this interval.
+    #[schemars(length(min = 1, max = 7))]
+    pub weekdays: Vec<ScheduleWeekday>,
+    /// Local start time in `HH:MM` format.
+    pub start: String,
+    /// Local end time in `HH:MM` format; overnight intervals are unsupported.
+    pub end: String,
+}
+
+/// Input for compact free/busy schedules.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarAvailabilityInput {
+    /// Account used to query Exchange; inferred only when unambiguous.
+    pub account_id: Option<String>,
+    /// Directory names or email addresses, from 1 through 20.
+    #[schemars(length(min = 1, max = 20))]
+    pub participants: Vec<String>,
+    /// First local date in `YYYY-MM-DD` format.
+    pub date_from: String,
+    /// Last inclusive local date in `YYYY-MM-DD` format.
+    pub date_to: String,
+    /// IANA timezone such as `Europe/Belgrade`.
+    pub time_zone: String,
+    /// Explicit local-time windows to include.
+    #[schemars(length(min = 1))]
+    pub working_hours: Vec<WorkingHoursInput>,
+}
+
+/// Input for common free-window calculation.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarFindSlotsInput {
+    /// Account used to query Exchange; inferred only when unambiguous.
+    pub account_id: Option<String>,
+    /// Directory names or email addresses, from 1 through 20.
+    #[schemars(length(min = 1, max = 20))]
+    pub participants: Vec<String>,
+    /// First local date in `YYYY-MM-DD` format.
+    pub date_from: String,
+    /// Last inclusive local date in `YYYY-MM-DD` format.
+    pub date_to: String,
+    /// IANA timezone such as `Europe/Belgrade`.
+    pub time_zone: String,
+    /// Explicit local-time windows to search.
+    #[schemars(length(min = 1))]
+    pub working_hours: Vec<WorkingHoursInput>,
+    /// Meeting length from 15 through 480 minutes, divisible by 15.
+    #[schemars(range(min = 15, max = 480))]
+    pub duration_minutes: u16,
+    /// Whether tentative intervals can be used; defaults to false.
+    #[serde(default)]
+    pub allow_tentative: bool,
+    /// Maximum common windows, default 20 and maximum 50.
+    #[schemars(range(min = 1, max = 50))]
+    pub limit: Option<u8>,
+}
+
+/// Input for explicit server-side Calendar Search.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarSearchInput {
+    /// Search text sent to EAS Search.
+    #[schemars(length(min = 1))]
+    pub query: String,
+    /// Account IDs; omitted means all enabled accounts.
+    pub account_ids: Option<Vec<String>>,
+    /// Maximum event summaries, default 20 and maximum 50.
+    #[schemars(range(min = 1, max = 50))]
+    pub limit: Option<u8>,
+}
+
+/// Input for one full Calendar item.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarGetInput {
+    /// Process-local event reference returned by Calendar Search.
+    pub event_ref: String,
+    /// Requested body characters: default 12,000, maximum 50,000.
+    #[schemars(range(min = 1, max = 50_000))]
+    pub body_limit: Option<u32>,
+}
+
+/// Stable free/busy interval state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FreeBusyState {
+    /// Free.
+    Free,
+    /// Tentative.
+    Tentative,
+    /// Busy.
+    Busy,
+    /// Out of office.
+    OutOfOffice,
+    /// Exchange has no data.
+    NoData,
+}
+
+/// Stable participant resolution state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParticipantResolutionState {
+    /// Exactly one directory recipient resolved.
+    Resolved,
+    /// Multiple complete suggestions were returned.
+    Ambiguous,
+    /// Suggestions are incomplete.
+    AmbiguousPartial,
+    /// No recipient matched.
+    NotFound,
+}
+
+/// Availability state for a resolved participant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParticipantAvailabilityState {
+    /// Free/busy intervals are available.
+    Available,
+    /// Exchange rejected the recipient count.
+    TooManyRecipients,
+    /// A distribution list is too large.
+    DistributionListTooLarge,
+    /// Exchange reported a transient failure.
+    TransientFailure,
+    /// Exchange reported a permanent failure.
+    Failure,
+    /// Exchange omitted free/busy data.
+    Missing,
+}
+
+/// One compact directory suggestion.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarRecipientCandidate {
+    /// Directory display name.
+    pub display_name: String,
+    /// Directory email address.
+    pub email: String,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// One merged free/busy interval in the requested timezone.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarAvailabilityInterval {
+    /// Inclusive interval start with UTC offset.
+    pub starts_at: String,
+    /// Exclusive interval end with UTC offset.
+    pub ends_at: String,
+    /// Merged EAS status.
+    pub status: FreeBusyState,
+}
+
+/// Resolution and compact schedule for one participant input.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarParticipantSchedule {
+    /// Original caller input.
+    pub input: String,
+    /// Directory resolution state.
+    pub resolution: ParticipantResolutionState,
+    /// Resolved display name.
+    pub display_name: Option<String>,
+    /// Resolved email address.
+    pub email: Option<String>,
+    /// Total matching directory candidates.
+    pub total_candidates: u32,
+    /// Bounded suggestions when resolution is ambiguous.
+    pub candidates: Vec<CalendarRecipientCandidate>,
+    /// Availability state for an exact recipient.
+    pub availability: ParticipantAvailabilityState,
+    /// Merged intervals clipped to requested working hours.
+    pub intervals: Vec<CalendarAvailabilityInterval>,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Compact free/busy response.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarAvailabilityData {
+    /// Account used for the directory request.
+    pub account_id: String,
+    /// Requested first date.
+    pub date_from: String,
+    /// Requested inclusive last date.
+    pub date_to: String,
+    /// Requested IANA timezone.
+    pub time_zone: String,
+    /// EAS free/busy precision.
+    pub precision_minutes: u8,
+    /// Whether every participant resolved exactly.
+    pub resolution_complete: bool,
+    /// Per-participant schedules.
+    pub participants: Vec<CalendarParticipantSchedule>,
+}
+
+/// Participant summary returned with common windows.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarSlotParticipant {
+    /// Original caller input.
+    pub input: String,
+    /// Directory resolution state.
+    pub resolution: ParticipantResolutionState,
+    /// Resolved display name.
+    pub display_name: Option<String>,
+    /// Resolved email address.
+    pub email: Option<String>,
+    /// Availability state.
+    pub availability: ParticipantAvailabilityState,
+    /// Bounded suggestions when resolution is ambiguous.
+    pub candidates: Vec<CalendarRecipientCandidate>,
+    /// Whether at least one requested interval had no data.
+    pub has_no_data: bool,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// One contiguous common window that can fit the requested duration.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarFreeWindow {
+    /// Earliest possible meeting start.
+    pub window_start: String,
+    /// End of the contiguous common-free interval.
+    pub window_end: String,
+    /// Latest possible meeting start for the requested duration.
+    pub latest_start: String,
+}
+
+/// Common free-window response.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarSlotsData {
+    /// Account used for the directory request.
+    pub account_id: String,
+    /// Requested IANA timezone.
+    pub time_zone: String,
+    /// Requested meeting duration.
+    pub duration_minutes: u16,
+    /// EAS free/busy precision.
+    pub precision_minutes: u8,
+    /// Whether every participant resolved exactly.
+    pub resolution_complete: bool,
+    /// Participant resolution summaries.
+    pub participants: Vec<CalendarSlotParticipant>,
+    /// Chronological common free windows.
+    pub windows: Vec<CalendarFreeWindow>,
+}
+
+/// Compact own-calendar Search result.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarEventSummary {
+    /// Process-local opaque reference.
+    pub event_ref: String,
+    /// Owning account ID.
+    pub account_id: String,
+    /// Subject.
+    pub subject: String,
+    /// Start time in UTC.
+    pub starts_at: Option<String>,
+    /// End time in UTC.
+    pub ends_at: Option<String>,
+    /// All-day marker.
+    pub all_day: bool,
+    /// Location.
+    pub location: String,
+    /// Organizer.
+    pub organizer: String,
+    /// Number of attendees in the Search result.
+    pub attendee_count: u32,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}
+
+/// Bounded server-side Calendar Search response.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarSearchData {
+    /// Compact matching events.
+    pub items: Vec<CalendarEventSummary>,
+    /// Whether Exchange reported more matching events.
+    pub results_truncated: bool,
+}
+
+/// Full own-calendar event fetched on demand.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CalendarEvent {
+    /// Process-local opaque reference.
+    pub event_ref: String,
+    /// Owning account ID.
+    pub account_id: String,
+    /// Subject.
+    pub subject: String,
+    /// Sanitized plain-text body.
+    pub body: String,
+    /// Whether the body was truncated by Exchange or the local limit.
+    pub body_truncated: bool,
+    /// Start time in UTC.
+    pub starts_at: Option<String>,
+    /// End time in UTC.
+    pub ends_at: Option<String>,
+    /// All-day marker.
+    pub all_day: bool,
+    /// Location.
+    pub location: String,
+    /// Organizer.
+    pub organizer: String,
+    /// Attendee addresses.
+    pub attendees: Vec<String>,
+    /// Recurrence fields from Exchange.
+    pub recurrence: BTreeMap<String, String>,
+    /// Recurrence exception fields.
+    pub exceptions: Vec<BTreeMap<String, String>>,
+    /// External content marker.
+    pub untrusted_external_content: bool,
+}

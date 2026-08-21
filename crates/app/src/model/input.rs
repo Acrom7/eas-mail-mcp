@@ -12,30 +12,6 @@ pub struct AccountSelection {
     pub account_ids: Option<Vec<String>>,
 }
 
-/// Scope accepted by `sync_now`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SyncScope {
-    /// Synchronize mail only.
-    Mail,
-    /// Synchronize calendars only.
-    Calendar,
-    /// Synchronize mail and calendars.
-    #[default]
-    All,
-}
-
-/// Input for explicit synchronization.
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SyncInput {
-    /// Account IDs; omitted means all enabled accounts.
-    pub account_ids: Option<Vec<String>>,
-    /// Collection scope.
-    #[serde(default)]
-    pub scope: SyncScope,
-}
-
 /// Input for paginated mail listing.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -88,42 +64,6 @@ pub struct MailAttachmentsInput {
 pub struct AttachmentDownloadInput {
     /// Process-local attachment reference.
     pub attachment_ref: String,
-}
-
-/// Input for paginated calendar listing.
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CalendarListInput {
-    /// Account IDs; omitted means all enabled accounts.
-    pub account_ids: Option<Vec<String>>,
-    /// Optional calendar folder IDs.
-    pub folder_ids: Option<Vec<String>>,
-    /// Opaque 15-minute snapshot cursor.
-    pub cursor: Option<String>,
-    /// Number of items, from 1 through 100.
-    pub limit: Option<u8>,
-}
-
-/// Input for refreshed in-memory calendar search.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CalendarSearchInput {
-    /// Case-insensitive text matched against safe event fields.
-    pub query: String,
-    /// Account IDs; omitted means all enabled accounts.
-    pub account_ids: Option<Vec<String>>,
-    /// Opaque 15-minute snapshot cursor.
-    pub cursor: Option<String>,
-    /// Number of items, from 1 through 100.
-    pub limit: Option<u8>,
-}
-
-/// Input for one calendar event.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CalendarGetInput {
-    /// Process-local calendar event reference.
-    pub event_ref: String,
 }
 
 /// Input for changing read state.

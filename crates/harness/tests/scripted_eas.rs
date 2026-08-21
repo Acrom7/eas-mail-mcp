@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eas_mail_mcp::backend::{AccountBackend as _, EasMailbox};
+use eas_mail_mcp::backend::{AccountBackend as _, EasMailbox, OutgoingMail};
 use eas_mail_mcp::{AccountConfig, AccountSecret, MemorySecretStore, SecretBundle, SecretStore};
 use eas_mail_mcp_harness::{ExpectedCall, ScriptedFailure, ScriptedTransport};
 use eas_mail_protocol::protocol::{
@@ -97,7 +97,7 @@ async fn scripted_delay_can_be_cancelled_by_a_timeout() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn options_requires_every_command_used_by_the_client() -> anyhow::Result<()> {
+async fn options_requires_the_read_command_set() -> anyhow::Result<()> {
     let headers = BTreeMap::from([
         ("ms-asprotocolversions".into(), "14.1".into()),
         ("ms-asprotocolcommands".into(), "Provision,FolderSync,Sync".into()),
@@ -107,6 +107,36 @@ async fn options_requires_every_command_used_by_the_client() -> anyhow::Result<(
     let boundary: Arc<dyn Transport> = transport.clone();
     let result = EasClient::new(boundary).options().await;
     anyhow::ensure!(matches!(result, Err(EasError::Protocol(_))));
+    transport.verify_complete()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_only_capabilities_block_send_before_a_mutation_request() -> anyhow::Result<()> {
+    let headers = BTreeMap::from([
+        ("ms-asprotocolversions".into(), "14.1".into()),
+        ("ms-asprotocolcommands".into(), "Provision,FolderSync,Sync,Search,ItemOperations".into()),
+    ]);
+    let transport =
+        Arc::new(ScriptedTransport::new(vec![ExpectedCall::Options { status: 200, headers }]));
+    let boundary: Arc<dyn Transport> = transport.clone();
+    let mailbox = EasMailbox::with_transport(
+        "example".into(),
+        account(),
+        Arc::new(secret_store()),
+        boundary,
+        123,
+        Some(evaluate_policy(&BTreeMap::new())),
+    )?;
+    let message = OutgoingMail {
+        to: vec!["user@example.invalid".into()],
+        cc: Vec::new(),
+        bcc: Vec::new(),
+        subject: "subject".into(),
+        body: "body".into(),
+    };
+    let error = mailbox.send("client", &message).await;
+    anyhow::ensure!(error.is_err(), "send should require the advertised command");
     transport.verify_complete()?;
     Ok(())
 }

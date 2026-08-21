@@ -24,12 +24,17 @@ fn redacted_failure_exposes_no_internal_error_text() {
 fn every_error_code_has_a_stable_uppercase_name() {
     let cases = [
         (ErrorCode::AuthRequired, "AUTH_REQUIRED"),
+        (ErrorCode::AccessDenied, "ACCESS_DENIED"),
         (ErrorCode::NetworkUnreachable, "NETWORK_UNREACHABLE"),
         (ErrorCode::ConfigInvalid, "CONFIG_INVALID"),
         (ErrorCode::PolicyBlocked, "POLICY_BLOCKED"),
         (ErrorCode::NotFound, "NOT_FOUND"),
         (ErrorCode::ReferenceExpired, "REFERENCE_EXPIRED"),
         (ErrorCode::ValidationFailed, "VALIDATION_FAILED"),
+        (ErrorCode::FeatureUnavailable, "FEATURE_UNAVAILABLE"),
+        (ErrorCode::AccountSelectionRequired, "ACCOUNT_SELECTION_REQUIRED"),
+        (ErrorCode::ResultTooLarge, "RESULT_TOO_LARGE"),
+        (ErrorCode::InteractiveRequired, "INTERACTIVE_REQUIRED"),
         (ErrorCode::ProtocolError, "PROTOCOL_ERROR"),
         (ErrorCode::SyncStale, "SYNC_STALE"),
         (ErrorCode::OutcomeUnknown, "OUTCOME_UNKNOWN"),
@@ -38,7 +43,7 @@ fn every_error_code_has_a_stable_uppercase_name() {
         (ErrorCode::StorageError, "STORAGE_ERROR"),
     ];
     for (value, expected) in cases {
-        assert_eq!(code(value), expected);
+        assert_eq!(value.as_str(), expected);
     }
 }
 

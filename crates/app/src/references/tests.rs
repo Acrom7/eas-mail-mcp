@@ -120,8 +120,7 @@ fn mail(server_id: &str) -> BackendMail {
 fn event(server_id: &str) -> BackendEvent {
     BackendEvent {
         account_id: "account".into(),
-        folder_id: "calendar".into(),
-        server_id: server_id.into(),
+        long_id: server_id.into(),
         fields: CalendarFields::default(),
     }
 }

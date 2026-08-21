@@ -12,11 +12,14 @@ mod query;
 mod transport;
 pub mod wbxml;
 
-pub use client::{EasClient, NegotiatedPolicy};
+pub use client::{EasClient, NegotiatedPolicy, ServerCapabilities};
+pub use eas_mail_profile::IdentityMode;
 pub use error::{EasError, Result};
 pub use model::{
-    Attachment, CalendarFields, ChangeData, ChangeKind, CollectionKind, Folder, FolderPage,
-    ItemResult, MailFields, MutationResult, Patch, SearchMail, SyncChange, SyncPage,
+    Attachment, CalendarFields, CalendarItemResult, CandidateAvailability, ChangeData, ChangeKind,
+    CollectionKind, Folder, FolderPage, FreeBusyStatus, ItemResult, MailFields, MutationResult,
+    Patch, RecipientAvailability, RecipientResolution, ResolvedRecipient, SearchCalendar,
+    SearchCalendarPage, SearchMail, SyncChange, SyncPage,
 };
 pub use profile::{Profile, ProfileKey, ProfileRegistry};
 pub use query::{Command, build_binary_query};

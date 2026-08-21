@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Duration, Utc};
 
 use crate::backend::{BackendEvent, BackendMail};
-use crate::model::{CalendarEvent, MailSummary};
+use crate::model::MailSummary;
 use crate::{AppError, ErrorCode, Result};
 
 const LIFETIME_MINUTES: i64 = 15;
@@ -56,7 +56,6 @@ pub(super) struct AttachmentReference {
 #[derive(Clone)]
 enum Snapshot {
     Mail(Arc<Vec<MailSummary>>),
-    Calendar(Arc<Vec<CalendarEvent>>),
 }
 
 #[derive(Clone)]
@@ -172,22 +171,6 @@ impl References {
         self.next_page(cursor, limit).and_then(mail_page)
     }
 
-    pub(super) fn first_calendar_page(
-        &self,
-        items: Vec<CalendarEvent>,
-        limit: usize,
-    ) -> Result<(Vec<CalendarEvent>, Option<String>)> {
-        self.first_page(Snapshot::Calendar(Arc::new(items)), limit).and_then(calendar_page)
-    }
-
-    pub(super) fn next_calendar_page(
-        &self,
-        cursor: &str,
-        limit: usize,
-    ) -> Result<(Vec<CalendarEvent>, Option<String>)> {
-        self.next_page(cursor, limit).and_then(calendar_page)
-    }
-
     fn first_page(&self, snapshot: Snapshot, limit: usize) -> Result<Page> {
         let length = snapshot_len(&snapshot);
         let end = length.min(limit);
@@ -245,14 +228,6 @@ struct Page {
 fn mail_page(page: Page) -> Result<(Vec<MailSummary>, Option<String>)> {
     match page.snapshot {
         Snapshot::Mail(items) => Ok((slice(&items, page.start, page.end)?, page.next_cursor)),
-        Snapshot::Calendar(_) => Err(expired()),
-    }
-}
-
-fn calendar_page(page: Page) -> Result<(Vec<CalendarEvent>, Option<String>)> {
-    match page.snapshot {
-        Snapshot::Calendar(items) => Ok((slice(&items, page.start, page.end)?, page.next_cursor)),
-        Snapshot::Mail(_) => Err(expired()),
     }
 }
 
@@ -263,7 +238,6 @@ fn slice<T: Clone>(items: &[T], start: usize, end: usize) -> Result<Vec<T>> {
 fn snapshot_len(snapshot: &Snapshot) -> usize {
     match snapshot {
         Snapshot::Mail(items) => items.len(),
-        Snapshot::Calendar(items) => items.len(),
     }
 }
 

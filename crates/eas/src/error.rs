@@ -9,6 +9,9 @@ pub enum EasError {
     /// The managed account requires credentials or rejected them.
     #[error("authentication failed")]
     Authentication,
+    /// The endpoint authenticated the request path but denied EAS access.
+    #[error("Exchange ActiveSync access is denied")]
+    AccessDenied,
     /// The endpoint cannot be reached safely.
     #[error("managed Exchange endpoint is unreachable: {0}")]
     Network(String),
@@ -21,6 +24,9 @@ pub enum EasError {
     /// Exchange returned an invalid or unsupported protocol response.
     #[error("EAS protocol error: {0}")]
     Protocol(String),
+    /// Exchange reported a retryable service-side failure.
+    #[error("Exchange service is temporarily unavailable")]
+    ServiceUnavailable,
     /// The collection SyncKey is no longer valid.
     #[error("collection SyncKey is stale")]
     InvalidSyncKey,

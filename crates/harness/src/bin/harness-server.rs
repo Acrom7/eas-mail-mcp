@@ -10,6 +10,7 @@ use rmcp::ServiceExt as _;
 
 const DELAY_ENV: &str = "EAS_MAIL_HARNESS_DELAY_MS";
 const CLOCK_FILE_ENV: &str = "EAS_MAIL_HARNESS_CLOCK_FILE";
+const EXIT_MARKER_ENV: &str = "EAS_MAIL_HARNESS_EXIT_MARKER";
 
 #[derive(Debug)]
 struct FileClock {
@@ -54,5 +55,8 @@ async fn main() -> anyhow::Result<()> {
         temporary.path().join("attachments"),
     )?);
     MailMcpServer::new(runtime).serve(rmcp::transport::stdio()).await?.waiting().await?;
+    if let Some(path) = std::env::var_os(EXIT_MARKER_ENV) {
+        std::fs::write(path, b"closed")?;
+    }
     Ok(())
 }

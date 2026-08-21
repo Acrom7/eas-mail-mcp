@@ -4,7 +4,7 @@ use crate::device::DEVICE_TYPE;
 use crate::{EasError, Result};
 
 /// Supported ActiveSync commands and compact-query command codes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Command {
     /// Synchronize a collection.
     Sync,
@@ -22,9 +22,27 @@ pub enum Command {
     ItemOperations,
     /// Negotiate an EAS policy.
     Provision,
+    /// Resolve directory recipients and retrieve free/busy data.
+    ResolveRecipients,
 }
 
 impl Command {
+    /// Returns the EAS command name advertised by OPTIONS.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Sync => "Sync",
+            Self::SendMail => "SendMail",
+            Self::SmartForward => "SmartForward",
+            Self::SmartReply => "SmartReply",
+            Self::FolderSync => "FolderSync",
+            Self::Search => "Search",
+            Self::ItemOperations => "ItemOperations",
+            Self::Provision => "Provision",
+            Self::ResolveRecipients => "ResolveRecipients",
+        }
+    }
+
     const fn code(self) -> u8 {
         match self {
             Self::Sync => 0x00,
@@ -35,6 +53,7 @@ impl Command {
             Self::Search => 0x10,
             Self::ItemOperations => 0x13,
             Self::Provision => 0x14,
+            Self::ResolveRecipients => 0x15,
         }
     }
 }

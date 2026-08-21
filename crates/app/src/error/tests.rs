@@ -18,7 +18,9 @@ fn builder_populates_only_explicit_public_fields() {
 fn every_eas_error_maps_to_a_stable_safe_code() {
     let cases = [
         (EasError::Authentication, ErrorCode::AuthRequired, false),
+        (EasError::AccessDenied, ErrorCode::AccessDenied, false),
         (EasError::Network("private detail".into()), ErrorCode::NetworkUnreachable, true),
+        (EasError::ServiceUnavailable, ErrorCode::ProtocolError, true),
         (EasError::OutcomeUnknown, ErrorCode::OutcomeUnknown, false),
         (EasError::InvalidConfiguration("private detail".into()), ErrorCode::ConfigInvalid, false),
         (EasError::InvalidSyncKey, ErrorCode::SyncStale, true),

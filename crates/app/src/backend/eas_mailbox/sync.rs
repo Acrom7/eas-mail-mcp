@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use eas_mail_protocol::{
-    CalendarFields, ChangeData, ChangeKind, CollectionKind, EasError, MailFields, Patch, SyncPage,
+    ChangeData, ChangeKind, CollectionKind, EasError, MailFields, Patch, SyncPage,
 };
 use futures::{StreamExt as _, stream};
 
@@ -69,16 +69,11 @@ impl EasMailbox {
         Ok(state.folders.values().cloned().collect())
     }
 
-    pub(super) async fn sync_selected(
+    pub(super) async fn sync_mail_selected(
         &self,
-        mail: bool,
-        calendar: bool,
         refresh_folders: bool,
         folder_ids: Option<&[String]>,
     ) -> Result<BackendSync> {
-        if !mail && !calendar {
-            return Ok(BackendSync { collections: 0, changes: 0 });
-        }
         let folders_missing = self.state.lock().await.folders.is_empty();
         if refresh_folders || folders_missing {
             self.refresh_folders().await?;
@@ -91,8 +86,7 @@ impl EasMailbox {
             .values()
             .filter_map(|folder| {
                 let kind = folder.kind?;
-                let matches_kind = (mail && kind == CollectionKind::Mail)
-                    || (calendar && kind == CollectionKind::Calendar);
+                let matches_kind = kind == CollectionKind::Mail;
                 let requested = requested
                     .as_ref()
                     .is_none_or(|values| values.contains(folder.server_id.as_str()));
@@ -219,18 +213,8 @@ fn apply_page(collection: &mut CollectionState, page: SyncPage) -> Result<()> {
             ) => {
                 patch_mail(collection.mail.entry(change.server_id).or_default(), fields);
             }
-            (
-                CollectionKind::Calendar,
-                ChangeKind::Add | ChangeKind::Change,
-                ChangeData::Calendar(fields),
-            ) => {
-                patch_calendar(collection.calendar.entry(change.server_id).or_default(), fields);
-            }
             (CollectionKind::Mail, ChangeKind::Delete | ChangeKind::SoftDelete, _) => {
                 collection.mail.remove(&change.server_id);
-            }
-            (CollectionKind::Calendar, ChangeKind::Delete | ChangeKind::SoftDelete, _) => {
-                collection.calendar.remove(&change.server_id);
             }
             _ => return Err(state_error()),
         }
@@ -251,21 +235,6 @@ fn patch_mail(target: &mut MailFields, patch: MailFields) {
     apply(&mut target.attachments, patch.attachments);
 }
 
-fn patch_calendar(target: &mut CalendarFields, patch: CalendarFields) {
-    apply(&mut target.subject, patch.subject);
-    apply(&mut target.body, patch.body);
-    apply(&mut target.starts_at, patch.starts_at);
-    apply(&mut target.ends_at, patch.ends_at);
-    apply(&mut target.all_day, patch.all_day);
-    apply(&mut target.location, patch.location);
-    apply(&mut target.organizer, patch.organizer);
-    apply(&mut target.attendees, patch.attendees);
-    apply(&mut target.reminder_minutes, patch.reminder_minutes);
-    apply(&mut target.recurrence, patch.recurrence);
-    apply(&mut target.exceptions, patch.exceptions);
-    apply(&mut target.meeting_status, patch.meeting_status);
-}
-
 fn apply<T>(target: &mut Patch<T>, patch: Patch<T>) {
     if let Patch::Value(value) = patch {
         *target = Patch::Value(value);
@@ -282,9 +251,9 @@ fn policy(state: &SessionState) -> Result<&eas_mail_protocol::protocol::PolicyDe
 
 fn effective_sync_options(state: &SessionState, kind: CollectionKind) -> Result<(u8, usize)> {
     let policy = policy(state)?;
-    let filter = match kind {
-        CollectionKind::Mail => policy.mail_filter_type,
-        CollectionKind::Calendar => policy.calendar_filter_type,
-    };
+    if kind != CollectionKind::Mail {
+        return Err(state_error());
+    }
+    let filter = policy.mail_filter_type;
     Ok((filter, policy.body_limit.min(500)))
 }

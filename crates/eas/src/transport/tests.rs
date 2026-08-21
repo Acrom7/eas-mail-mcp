@@ -88,7 +88,7 @@ async fn http_transport_checks_origin_status_and_request_invariants() -> anyhow:
 
 #[tokio::test]
 async fn http_transport_maps_redirects_auth_and_purges_memory_secrets() -> anyhow::Result<()> {
-    for (status, expected_auth) in [(302, false), (401, true), (403, true)] {
+    for (status, expected) in [(302, "redirect"), (401, "authentication"), (403, "access_denied")] {
         let server =
             TestServer::start(format!("HTTP/1.1 {status} Test\r\nContent-Length: 0\r\n\r\n"))
                 .await?;
@@ -101,7 +101,12 @@ async fn http_transport_maps_redirects_auth_and_purges_memory_secrets() -> anyho
             "00112233445566778899AABBCCDDEEFF".into(),
         )?;
         let result = transport.options().await;
-        anyhow::ensure!(matches!(result, Err(EasError::Authentication)) == expected_auth);
+        let matched = match expected {
+            "authentication" => matches!(result, Err(EasError::Authentication)),
+            "access_denied" => matches!(result, Err(EasError::AccessDenied)),
+            _ => matches!(result, Err(EasError::Protocol(_))),
+        };
+        anyhow::ensure!(matched);
         server.wait().await?;
     }
 

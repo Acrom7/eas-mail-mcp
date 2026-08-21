@@ -39,6 +39,27 @@ pub(crate) fn run(root: &Path, denylist: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn artifact_patterns(root: &Path) -> Result<Vec<String>> {
+    let denylist = root.join(".private/public-audit-denylist.txt");
+    patterns(root, denylist.exists().then_some(denylist.as_path()))
+}
+
+pub(crate) fn audit_tree(root: &Path, directory: &Path, label: &str) -> Result<()> {
+    let patterns = artifact_patterns(root)?;
+    let mut findings = Vec::new();
+    scan_tree(directory, directory, &patterns, &mut findings)?;
+    anyhow::ensure!(findings.is_empty(), "{label} contains private material");
+    Ok(())
+}
+
+pub(crate) fn audit_bytes(root: &Path, label: &str, bytes: &[u8]) -> Result<()> {
+    let patterns = artifact_patterns(root)?;
+    let mut findings = Vec::new();
+    scan(label, bytes, &patterns, &mut findings);
+    anyhow::ensure!(findings.is_empty(), "{label} contains private material");
+    Ok(())
+}
+
 fn patterns(root: &Path, denylist: Option<&Path>) -> Result<Vec<String>> {
     let mut patterns = vec![
         ["/", "Users", "/"].concat().to_ascii_lowercase(),
@@ -59,6 +80,27 @@ fn patterns(root: &Path, denylist: Option<&Path>) -> Result<Vec<String>> {
     patterns.sort();
     patterns.dedup();
     Ok(patterns)
+}
+
+fn scan_tree(
+    root: &Path,
+    directory: &Path,
+    patterns: &[String],
+    findings: &mut Vec<String>,
+) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            findings.push(format!("{} is a symlink", path.display()));
+        } else if metadata.is_dir() {
+            scan_tree(root, &path, patterns, findings)?;
+        } else if metadata.is_file() {
+            let relative = path.strip_prefix(root).unwrap_or(&path).to_string_lossy();
+            scan(&relative, &fs::read(&path)?, patterns, findings);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn scan(label: &str, bytes: &[u8], patterns: &[String], findings: &mut Vec<String>) {

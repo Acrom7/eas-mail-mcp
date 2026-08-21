@@ -10,9 +10,35 @@ use support::*;
 
 #[tokio::test]
 async fn options_validates_http_version_and_commands() -> anyhow::Result<()> {
-    EasClient::new(boundary(QueueTransport::with_options(response(200, Vec::new(), headers()))))
-        .options()
-        .await?;
+    let mut calendar_headers = headers();
+    calendar_headers.insert(
+        "ms-asprotocolcommands".into(),
+        "Provision,FolderSync,Sync,Search,ItemOperations,SendMail,SmartReply,SmartForward,ResolveRecipients"
+            .into(),
+    );
+    let capabilities = EasClient::new(boundary(QueueTransport::with_options(response(
+        200,
+        Vec::new(),
+        calendar_headers,
+    ))))
+    .options()
+    .await?;
+    assert!(capabilities.supports_writes());
+    assert!(capabilities.supports(eas_mail_protocol::Command::ResolveRecipients));
+
+    let read_only = BTreeMap::from([
+        ("ms-asprotocolversions".into(), "14.1".into()),
+        ("ms-asprotocolcommands".into(), "Provision,FolderSync,Sync,Search,ItemOperations".into()),
+    ]);
+    let capabilities = EasClient::new(boundary(QueueTransport::with_options(response(
+        200,
+        Vec::new(),
+        read_only,
+    ))))
+    .options()
+    .await?;
+    assert!(!capabilities.supports_writes());
+    assert!(!capabilities.supports(eas_mail_protocol::Command::ResolveRecipients));
 
     let mut unsupported_version = headers();
     unsupported_version.insert("ms-asprotocolversions".into(), "12.1".into());

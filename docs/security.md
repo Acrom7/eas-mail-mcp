@@ -8,8 +8,8 @@ This document records engineering controls used by release builds.
 - Public binaries and npm tarballs contain no deployment profiles.
 - `profile.example.toml` is public and non-routable.
 - `profile validate` and `cargo xtask profile verify` validate schema, host and domain syntax,
-  duplicate IDs, realm syntax, Device ID length, trust mode, traversal, symlink,
-  PEM shape, and certificate fingerprint.
+  duplicate IDs, identity mode, realm and hint syntax, Device ID length, trust
+  mode, traversal, symlink, PEM shape, and certificate fingerprint.
 - Profile writes are atomic and use private local permissions.
 - Import replacement is explicit and rejects account-invalidating changes.
 - Inline PEM is public trust material, must contain one certificate and no
@@ -24,8 +24,9 @@ When present, `.private/` receives a separate credential/private-key scan.
 
 Release builds remap workspace and Cargo source paths. `cargo xtask npm pack`
 checks binary size, architecture, code signature, local path leakage, package
-contents, version parity, and the absence of lifecycle scripts. Source releases
-contain no binaries or ignored files.
+contents, version parity, and the absence of lifecycle scripts. Release binary
+strings and every unpacked npm tarball are also scanned against the local
+operator denylist. Source releases contain no binaries or ignored files.
 
 ## Runtime controls
 

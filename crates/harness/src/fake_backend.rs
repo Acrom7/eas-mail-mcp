@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use eas_mail_mcp::backend::{
-    AccountBackend, BackendAccount, BackendEvent, BackendMail, BackendSync, MailSource,
-    OutgoingMail,
+    AccountBackend, BackendAccount, BackendCalendarSearch, BackendCapabilities, BackendEvent,
+    BackendMail, BackendSync, MailSource, OutgoingMail,
 };
 use eas_mail_mcp::{AppError, ErrorCode, Result};
 use eas_mail_protocol::{
-    Attachment, CalendarFields, CollectionKind, Folder, MailFields, Patch, ProfileKey,
+    Attachment, CalendarFields, CandidateAvailability, CollectionKind, Folder, FreeBusyStatus,
+    MailFields, Patch, ProfileKey, RecipientAvailability, RecipientResolution, ResolvedRecipient,
 };
 
 /// Deterministic high-level backend used by MCP black-box tests.
@@ -31,6 +32,7 @@ impl FakeBackend {
                 account_id: account_id.into(),
                 profile: ProfileKey::default(),
                 email: format!("{account_id}@example.invalid"),
+                email_domains: vec!["example.invalid".into()],
                 enabled: true,
                 write_enabled: true,
             },
@@ -58,6 +60,14 @@ impl FakeBackend {
     #[must_use]
     pub const fn with_writes_enabled(mut self, enabled: bool) -> Self {
         self.account.write_enabled = enabled;
+        self
+    }
+
+    /// Replaces safe account identity metadata for account-selection tests.
+    #[must_use]
+    pub fn with_identity(mut self, email: &str, domains: &[&str]) -> Self {
+        self.account.email = email.into();
+        self.account.email_domains = domains.iter().map(|value| (*value).into()).collect();
         self
     }
 
@@ -104,17 +114,19 @@ impl AccountBackend for FakeBackend {
         self.account.clone()
     }
 
+    async fn capabilities(&self) -> Result<BackendCapabilities> {
+        self.check().await?;
+        Ok(BackendCapabilities { calendar_availability: true, mail_writes: true })
+    }
+
     async fn folders(&self) -> Result<Vec<Folder>> {
         self.check().await?;
         Ok(folders())
     }
 
-    async fn sync(&self, mail: bool, calendar: bool) -> Result<BackendSync> {
+    async fn sync_mail(&self) -> Result<BackendSync> {
         self.check().await?;
-        Ok(BackendSync {
-            collections: usize::from(mail) + usize::from(calendar),
-            changes: usize::from(mail) + usize::from(calendar),
-        })
+        Ok(BackendSync { collections: 1, changes: 1 })
     }
 
     async fn list_mail(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendMail>> {
@@ -155,13 +167,44 @@ impl AccountBackend for FakeBackend {
         Ok(b"attachment payload".to_vec())
     }
 
-    async fn list_calendar(&self, folder_ids: Option<&[String]>) -> Result<Vec<BackendEvent>> {
+    async fn calendar_availability(
+        &self,
+        participants: &[String],
+        starts_at: chrono::DateTime<chrono::Utc>,
+        ends_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<RecipientAvailability>> {
         self.check().await?;
-        Ok(if folder_ids.is_none_or(|ids| ids.iter().any(|id| id == "calendar")) {
-            vec![event(&self.account.account_id)]
-        } else {
-            Vec::new()
-        })
+        let milliseconds = ends_at.signed_duration_since(starts_at).num_milliseconds();
+        let slots = milliseconds
+            .saturating_add(1_799_999)
+            .checked_div(1_800_000)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| failure(ErrorCode::ProtocolError))?;
+        Ok(participants
+            .iter()
+            .map(|input| RecipientAvailability {
+                input: input.clone(),
+                resolution: RecipientResolution::Resolved,
+                total_candidates: 1,
+                candidates: vec![ResolvedRecipient {
+                    recipient_type: 1,
+                    display_name: "Test User".into(),
+                    email: input.clone(),
+                    availability: CandidateAvailability::Slots(vec![FreeBusyStatus::Free; slots]),
+                }],
+            })
+            .collect())
+    }
+
+    async fn search_calendar(&self, _: &str, limit: usize) -> Result<BackendCalendarSearch> {
+        self.check().await?;
+        let events = (limit > 0).then(|| event(&self.account.account_id)).into_iter().collect();
+        Ok(BackendCalendarSearch { events, total: 1 })
+    }
+
+    async fn fetch_calendar(&self, _: &str, _: usize) -> Result<BackendEvent> {
+        self.check().await?;
+        Ok(event(&self.account.account_id))
     }
 
     async fn mark_read(&self, _: &MailSource, _: bool) -> Result<()> {
@@ -237,11 +280,11 @@ fn mail(account_id: &str, source: MailSource) -> BackendMail {
 fn event(account_id: &str) -> BackendEvent {
     BackendEvent {
         account_id: account_id.into(),
-        folder_id: "calendar".into(),
-        server_id: "event-1".into(),
+        long_id: "event-1".into(),
         fields: CalendarFields {
             subject: Patch::Value("Planning".into()),
             body: Patch::Value("<p>Agenda</p>".into()),
+            body_truncated: Patch::Value(false),
             starts_at: Patch::Value(chrono::DateTime::from_timestamp(1_700_010_000, 0)),
             ends_at: Patch::Value(chrono::DateTime::from_timestamp(1_700_013_600, 0)),
             all_day: Patch::Value(false),

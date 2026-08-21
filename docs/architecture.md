@@ -18,8 +18,12 @@ flowchart LR
 ```
 
 Each MCP client launches its own server process. There is no daemon or shared
-mailbox cache. FolderSync keys, collection SyncKeys, item references, cursors,
-previews, and calendar objects exist only in that process.
+mailbox cache. Mail FolderSync keys, collection SyncKeys, item references,
+cursors, previews, and Calendar Search references exist only in that process. The unit of lifetime
+is an MCP stdio connection rather than an application: clients that retain
+multiple task sessions retain multiple server processes. Closing the transport
+ends the process; editing client configuration does not retroactively close an
+existing connection.
 
 ## Dependency direction
 
@@ -37,8 +41,13 @@ pure functions with concrete types.
 The public binary contains no endpoint metadata. On startup, the app reads the
 user-owned `profiles.toml`, validates the whole document, and resolves each
 account's `ProfileKey` against that registry. A profile fixes its DNS host,
-allowed email domains, optional username realm, Device ID length, and trust
-mode. It cannot configure HTTP, ports, paths, redirects, or TLS bypasses.
+allowed email domains, identity strategy, optional username realm and hint,
+Device ID length, and trust mode. It cannot configure HTTP, ports, paths,
+redirects, protocol version, DeviceType, or TLS bypasses.
+
+Schema v1 profile files are normalized to the v2 identity model in memory.
+Account config continues to store the canonical Basic Auth username, so this
+migration never moves or rewrites Keychain credentials.
 
 The bundle version and SHA-256 hash are available through `--version --verbose`
 and `doctor`. Profile replacement is atomic and is rejected when it invalidates
@@ -46,20 +55,34 @@ an existing account or changes a Device ID length already in use.
 
 ## EAS state
 
-The process runs `OPTIONS`, `Provision`, and `FolderSync`, then synchronizes mail
-and calendar collections. Mail uses policy-capped `FilterType=5`; calendar uses
-policy-capped `FilterType=6`. A default `mail_list` synchronizes Inbox and Sent;
-explicit `folder_ids` select other mail collections, and `sync_now` still
-refreshes every collection in its scope. Pages are consumed until
-`MoreAvailable` disappears, including empty intermediate pages.
+The process starts with `OPTIONS` and `Provision`. `OPTIONS` requires the core
+mail read command set; compose commands are capability-gated and their absence
+leaves the account read-only. `ResolveRecipients` is optional: its absence does
+not block setup or mail, and availability tools return `FEATURE_UNAVAILABLE`.
+
+Mail uses FolderSync and policy-capped `FilterType=5`. A default `mail_list`
+synchronizes Inbox and Sent; explicit `folder_ids` select other mail
+collections, and `sync_now` refreshes every mail collection. Pages are consumed
+until `MoreAvailable` disappears, including empty intermediate pages.
 
 Each collection owns its SyncKey. An invalid key resets only that collection.
 `Add`, `Change`, `Delete`, and `SoftDelete` are applied in wire order. A missing
 field preserves the old value; a present empty field clears it.
 
-List and search results become immutable RAM snapshots for 15 minutes, with at
-most 32 snapshots. Search always uses EAS Search. Full bodies and attachments
-use ItemOperations only on demand.
+Mail list and search results become immutable RAM snapshots for 15 minutes, with
+at most 32 snapshots. Mail Search always uses EAS Search. Full bodies and
+attachments use ItemOperations only on demand.
+
+Calendar availability does not use FolderSync or Sync. Each request calls
+`ResolveRecipients + Availability`; a 31-day input is divided into requests of
+at most seven days, and 30-minute free/busy digits are clipped to explicit local
+working hours. Timezone, DST validation, status merging, and common-window
+intersection are pure Rust transformations. No availability cache is retained.
+Subjects and bodies from other people's meetings are never requested.
+
+Own-calendar lookup uses `Search` with `Class=Calendar`. Compact results receive
+15-minute process-local references; `calendar_get` fetches one LongId through
+ItemOperations. There is no full-calendar synchronization or calendar snapshot.
 
 ## Persistent state
 
@@ -73,8 +96,10 @@ use ItemOperations only on demand.
 ## MCP contract
 
 All tool results use `data`, `error`, and `warnings`. One account may fail while
-another returns data. Limits are 100 records, 500-character previews, 12,000
-body characters by default, and 50,000 maximum. Calendar is read-only. Four mail
+another returns data. Mail limits are 100 records, 500-character previews,
+12,000 body characters by default, and 50,000 maximum. Availability accepts 20
+participants and 31 days, has 30-minute precision, and fails rather than
+truncating above 256 KiB. Calendar is read-only. Four mail
 writes require account opt-in and durable idempotency state before the EAS
 request. An explicit write-tool call validates and executes immediately; draft
 or review workflows remain in the agent and must not call the mutation tool.

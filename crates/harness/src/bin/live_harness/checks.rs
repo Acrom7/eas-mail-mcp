@@ -2,9 +2,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use eas_mail_mcp::{
-    AccountSelection, ApiResponse, AttachmentDownloadInput, CalendarListInput,
-    MailAttachmentsInput, MailForwardInput, MailGetInput, MailListInput, MailPage, MailReplyInput,
-    MailSearchInput, MailSendInput, MailSummary, MarkReadInput, Runtime, SyncInput, SyncScope,
+    AccountSelection, ApiResponse, AttachmentDownloadInput, CalendarAvailabilityInput,
+    CalendarFindSlotsInput, CalendarGetInput, CalendarSearchInput, MailAttachmentsInput,
+    MailForwardInput, MailGetInput, MailListInput, MailPage, MailReplyInput, MailSearchInput,
+    MailSendInput, MailSummary, MarkReadInput, Runtime, ScheduleWeekday, WorkingHoursInput,
 };
 
 use super::support::AccountReport;
@@ -37,23 +38,14 @@ pub async fn check_account(
         "warm mail_list exceeded the 3 second target: {warm_mail_list_ms} ms"
     );
     required(
-        runtime.sync_now(SyncInput { account_ids: selection.clone(), scope: SyncScope::All }).await,
+        runtime.sync_now(AccountSelection { account_ids: selection.clone() }).await,
         "sync_now",
     )?;
     let folders = required(
         runtime.folders_list(AccountSelection { account_ids: selection.clone() }).await,
         "folders_list",
     )?;
-    let calendar = required(
-        runtime
-            .calendar_list(CalendarListInput {
-                account_ids: selection.clone(),
-                limit: Some(100),
-                ..CalendarListInput::default()
-            })
-            .await,
-        "calendar_list",
-    )?;
+    let calendar_count = check_calendar(runtime, account_id, email, selection.clone()).await?;
     let first = mail
         .items
         .first()
@@ -91,13 +83,96 @@ pub async fn check_account(
         account_id: account_id.to_owned(),
         folders: folders.folders.len(),
         mail: mail.items.len(),
-        calendar: calendar.items.len(),
+        calendar: calendar_count,
         search: search.items.len(),
         attachment_checked,
         writes_checked: self_write,
         cold_mail_list_ms,
         warm_mail_list_ms,
     })
+}
+
+async fn check_calendar(
+    runtime: &Runtime,
+    account_id: &str,
+    email: &str,
+    selection: Option<Vec<String>>,
+) -> anyhow::Result<usize> {
+    let (date, working_hours) = current_schedule();
+    let calendar = required(
+        runtime
+            .calendar_availability(CalendarAvailabilityInput {
+                account_id: Some(account_id.to_owned()),
+                participants: vec![email.to_owned()],
+                date_from: date.clone(),
+                date_to: date.clone(),
+                time_zone: "UTC".into(),
+                working_hours: working_hours.clone(),
+            })
+            .await,
+        "calendar_availability",
+    )?;
+    anyhow::ensure!(calendar.resolution_complete, "self calendar recipient did not resolve");
+    required(
+        runtime
+            .calendar_find_slots(CalendarFindSlotsInput {
+                account_id: Some(account_id.to_owned()),
+                participants: vec![email.to_owned()],
+                date_from: date.clone(),
+                date_to: date,
+                time_zone: "UTC".into(),
+                working_hours,
+                duration_minutes: 30,
+                allow_tentative: false,
+                limit: Some(20),
+            })
+            .await,
+        "calendar_find_slots",
+    )?;
+    let search = required(
+        runtime
+            .calendar_search(CalendarSearchInput {
+                query: email.to_owned(),
+                account_ids: selection,
+                limit: Some(1),
+            })
+            .await,
+        "calendar_search",
+    )?;
+    if let Some(event) = search.items.first() {
+        required(
+            runtime
+                .calendar_get(CalendarGetInput {
+                    event_ref: event.event_ref.clone(),
+                    body_limit: Some(12_000),
+                })
+                .await,
+            "calendar_get",
+        )?;
+    }
+    Ok(search.items.len())
+}
+
+fn current_schedule() -> (String, Vec<WorkingHoursInput>) {
+    use chrono::Datelike as _;
+    let date = chrono::Utc::now().date_naive();
+    let weekday = match date.weekday() {
+        chrono::Weekday::Mon => ScheduleWeekday::Mon,
+        chrono::Weekday::Tue => ScheduleWeekday::Tue,
+        chrono::Weekday::Wed => ScheduleWeekday::Wed,
+        chrono::Weekday::Thu => ScheduleWeekday::Thu,
+        chrono::Weekday::Fri => ScheduleWeekday::Fri,
+        chrono::Weekday::Sat => ScheduleWeekday::Sat,
+        chrono::Weekday::Sun => ScheduleWeekday::Sun,
+    };
+    (
+        date.to_string(),
+        vec![WorkingHoursInput {
+            weekdays: vec![weekday],
+            start: "00:00".into(),
+            end: "23:30".into(),
+        }],
+    )
 }
 
 async fn timed_mail_list(

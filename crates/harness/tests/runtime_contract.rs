@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use eas_mail_mcp::backend::AccountBackend;
 use eas_mail_mcp::{
-    AccountSelection, CalendarGetInput, CalendarListInput, CalendarSearchInput, ErrorCode,
-    MailForwardInput, MailListInput, MailReplyInput, MailSearchInput, MarkReadInput,
-    OperationJournal, OperationState, Runtime, SyncInput, SyncScope,
+    AccountSelection, CalendarAvailabilityInput, CalendarFindSlotsInput, CalendarGetInput,
+    CalendarSearchInput, ErrorCode, MailForwardInput, MailListInput, MailReplyInput,
+    MailSearchInput, MarkReadInput, OperationJournal, OperationState, Runtime, ScheduleWeekday,
+    WorkingHoursInput,
 };
 use eas_mail_mcp_harness::{FakeBackend, FixedClock, MemoryJournal, SequenceIds};
 
@@ -25,11 +26,9 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
         runtime.sync_status(AccountSelection::default()).data.map(|data| data.reports.len()),
         Some(0)
     );
-    for scope in [SyncScope::Mail, SyncScope::Calendar, SyncScope::All] {
-        let response = runtime.sync_now(SyncInput { account_ids: None, scope }).await;
-        assert!(response.error.is_none());
-        assert_eq!(response.data.map(|data| data.reports.len()), Some(1));
-    }
+    let response = runtime.sync_now(AccountSelection::default()).await;
+    assert!(response.error.is_none());
+    assert_eq!(response.data.map(|data| data.reports.len()), Some(1));
     assert_eq!(
         runtime.sync_status(AccountSelection::default()).data.map(|data| data.reports.len()),
         Some(1)
@@ -73,32 +72,60 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
         Some(ErrorCode::ValidationFailed)
     );
 
-    let events = runtime.calendar_list(CalendarListInput::default()).await;
+    exercise_calendar(&runtime).await?;
+    Ok(())
+}
+
+async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
+    let availability = runtime
+        .calendar_availability(CalendarAvailabilityInput {
+            account_id: None,
+            participants: vec!["work@example.invalid".into()],
+            date_from: "2026-08-03".into(),
+            date_to: "2026-08-03".into(),
+            time_zone: "UTC".into(),
+            working_hours: working_hours(),
+        })
+        .await;
+    assert_eq!(availability.data.map(|data| data.participants.len()), Some(1));
+    let slots = runtime
+        .calendar_find_slots(CalendarFindSlotsInput {
+            account_id: None,
+            participants: vec!["work@example.invalid".into()],
+            date_from: "2026-08-03".into(),
+            date_to: "2026-08-03".into(),
+            time_zone: "UTC".into(),
+            working_hours: working_hours(),
+            duration_minutes: 60,
+            allow_tentative: false,
+            limit: None,
+        })
+        .await;
+    assert_eq!(slots.data.map(|data| data.windows.len()), Some(1));
+    let events = runtime
+        .calendar_search(CalendarSearchInput {
+            query: "planning".into(),
+            account_ids: None,
+            limit: None,
+        })
+        .await;
     let event_ref = events
         .data
         .and_then(|data| data.items.into_iter().next())
         .map(|event| event.event_ref)
         .ok_or_else(|| anyhow::anyhow!("calendar event is missing"))?;
-    assert!(runtime.calendar_get(CalendarGetInput { event_ref }).error.is_none());
-    assert_eq!(
+    assert!(
         runtime
-            .calendar_search(CalendarSearchInput {
-                query: "planning".into(),
-                account_ids: None,
-                cursor: None,
-                limit: None,
-            })
+            .calendar_get(CalendarGetInput { event_ref, body_limit: None })
             .await
-            .data
-            .map(|data| data.items.len()),
-        Some(1)
+            .error
+            .is_none()
     );
     assert_eq!(
         runtime
             .calendar_search(CalendarSearchInput {
                 query: " ".into(),
                 account_ids: None,
-                cursor: None,
                 limit: None,
             })
             .await
@@ -107,6 +134,14 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
         Some(ErrorCode::ValidationFailed)
     );
     Ok(())
+}
+
+fn working_hours() -> Vec<WorkingHoursInput> {
+    vec![WorkingHoursInput {
+        weekdays: vec![ScheduleWeekday::Mon],
+        start: "09:00".into(),
+        end: "18:00".into(),
+    }]
 }
 
 #[tokio::test]
@@ -212,6 +247,43 @@ async fn runtime_rejects_invalid_boundaries_and_account_selection() -> anyhow::R
         directory.path().join("bad-key"),
     );
     assert!(bad_key.is_err_and(|error| error.envelope.code == ErrorCode::StorageError));
+    Ok(())
+}
+
+#[tokio::test]
+async fn calendar_account_selection_requires_one_domain_match() -> anyhow::Result<()> {
+    let alpha = Arc::new(
+        FakeBackend::new("alpha").with_identity("owner@alpha.invalid", &["alpha.invalid"]),
+    );
+    let beta =
+        Arc::new(FakeBackend::new("beta").with_identity("owner@beta.invalid", &["beta.invalid"]));
+    let (runtime, _directory) = runtime(vec![alpha, beta])?;
+    let selected = runtime
+        .calendar_availability(CalendarAvailabilityInput {
+            account_id: None,
+            participants: vec!["person@alpha.invalid".into()],
+            date_from: "2026-08-03".into(),
+            date_to: "2026-08-03".into(),
+            time_zone: "UTC".into(),
+            working_hours: working_hours(),
+        })
+        .await;
+    assert_eq!(
+        selected.data.map(|value| value.account_id.as_str().to_owned()),
+        Some("alpha".into())
+    );
+
+    let ambiguous = runtime
+        .calendar_availability(CalendarAvailabilityInput {
+            account_id: None,
+            participants: vec!["Directory Name".into()],
+            date_from: "2026-08-03".into(),
+            date_to: "2026-08-03".into(),
+            time_zone: "UTC".into(),
+            working_hours: working_hours(),
+        })
+        .await;
+    assert_eq!(ambiguous.error.map(|value| value.code), Some(ErrorCode::AccountSelectionRequired));
     Ok(())
 }
 

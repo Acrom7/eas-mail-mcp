@@ -31,6 +31,35 @@ fn runtime_profile_has_fixed_endpoint_and_identity_rules() -> eas_mail_protocol:
 }
 
 #[test]
+fn identity_modes_canonicalize_without_shell_escaping() -> eas_mail_protocol::Result<()> {
+    let realm = registry_with_identity(
+        "realm_username",
+        "realm = \"EXAMPLE\"\nusername_hint = \"Short login\"",
+    )?;
+    let profile = realm.require(&ProfileKey::new("example")?)?;
+    assert_eq!(profile.username_hint(), Some("Short login"));
+    assert_eq!(
+        profile.canonical_username("user@example.invalid", Some("short"))?,
+        "EXAMPLE\\short"
+    );
+    assert_eq!(
+        profile.canonical_username("user@example.invalid", Some("example\\short"))?,
+        "EXAMPLE\\short"
+    );
+    assert!(profile.canonical_username("user@example.invalid", Some("OTHER\\short")).is_err());
+
+    let email = registry_with_identity("email", "")?;
+    let profile = email.require(&ProfileKey::new("example")?)?;
+    assert_eq!(profile.canonical_username("user@example.invalid", None)?, "user@example.invalid");
+    assert!(
+        profile
+            .canonical_username("user@example.invalid", Some("another@example.invalid"))
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn profile_keys_reject_runtime_endpoint_material() {
     for invalid in ["", "Uppercase", "has space", "host.example.invalid", "-leading"] {
         assert!(ProfileKey::new(invalid).is_err());
@@ -48,6 +77,7 @@ fn compact_query_encodes_every_command_and_policy_form() -> eas_mail_protocol::R
         (Command::Search, 0x10),
         (Command::ItemOperations, 0x13),
         (Command::Provision, 0x14),
+        (Command::ResolveRecipients, 0x15),
     ];
     for (command, expected) in commands {
         let query = build_binary_query(command, "001122AABBCC", 0x1234_5678, false)?;
@@ -68,4 +98,13 @@ fn compact_query_encodes_every_command_and_policy_form() -> eas_mail_protocol::R
         assert!(build_binary_query(Command::Sync, invalid, 0, false).is_err());
     }
     Ok(())
+}
+
+fn registry_with_identity(
+    mode: &str,
+    identity_fields: &str,
+) -> eas_mail_protocol::Result<ProfileRegistry> {
+    ProfileRegistry::from_toml(&format!(
+        "schema_version = 2\nbundle_version = \"test\"\n\n[[profiles]]\nid = \"example\"\ndisplay_name = \"Example\"\nhost = \"mail.example.invalid\"\nemail_domains = [\"example.invalid\"]\ndevice_id_length = 16\n\n[profiles.identity]\nmode = {mode:?}\n{identity_fields}\n\n[profiles.trust]\nmode = \"system\"\n"
+    ))
 }

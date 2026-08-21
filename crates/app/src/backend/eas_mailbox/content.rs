@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
-use eas_mail_protocol::{CalendarFields, CollectionKind, EasError, MailFields, Patch};
+use eas_mail_protocol::{CollectionKind, EasError, MailFields, Patch};
 
-use super::super::{BackendEvent, BackendMail, MailSource};
+use super::super::{BackendMail, MailSource};
 use super::session::{EasMailbox, SessionState};
 use crate::{AppError, ErrorCode, Result};
 
@@ -29,28 +29,6 @@ impl EasMailbox {
             }));
         }
         output.sort_by_key(|item| std::cmp::Reverse(received(&item.fields)));
-        Ok(output)
-    }
-
-    pub(super) async fn calendar_snapshot(
-        &self,
-        folder_ids: Option<&[String]>,
-    ) -> Result<Vec<BackendEvent>> {
-        let state = self.state.lock().await;
-        let selected = selection(folder_ids);
-        let mut output = Vec::new();
-        for (folder_id, collection) in &state.collections {
-            if collection.kind != CollectionKind::Calendar || !included(&selected, folder_id) {
-                continue;
-            }
-            output.extend(collection.calendar.iter().map(|(server_id, fields)| BackendEvent {
-                account_id: self.account.account_id.clone(),
-                folder_id: folder_id.clone(),
-                server_id: server_id.clone(),
-                fields: fields.clone(),
-            }));
-        }
-        output.sort_by_key(|item| start(&item.fields));
         Ok(output)
     }
 
@@ -149,13 +127,6 @@ fn included(selected: &Option<BTreeSet<&str>>, value: &str) -> bool {
 
 fn received(fields: &MailFields) -> Option<chrono::DateTime<chrono::Utc>> {
     match &fields.received_at {
-        Patch::Value(value) => *value,
-        Patch::Missing => None,
-    }
-}
-
-fn start(fields: &CalendarFields) -> Option<chrono::DateTime<chrono::Utc>> {
-    match &fields.starts_at {
         Patch::Value(value) => *value,
         Patch::Missing => None,
     }
