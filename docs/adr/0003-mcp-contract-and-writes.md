@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-14
-- Amended: 2026-08-18
+- Amended: 2026-08-22
 
 ## Context
 
@@ -11,10 +11,17 @@ be duplicated by retries or initiated without adequate user review.
 
 ## Decision
 
-Expose 12 read tools and four mail write tools with structured schemas. Lists are
-bounded to 100, previews to 500 characters, and bodies to 12,000 by default and
-50,000 maximum. Calendar remains read-only in this version. Search always runs
-on Exchange; cursors point to immutable 15-minute RAM snapshots.
+Expose 13 read tools, four mail write tools, and five Calendar lifecycle tools
+with structured schemas. Lists are bounded to 100, previews to 500 characters,
+and bodies to 12,000 by default and 50,000 maximum. Search always runs on
+Exchange; cursors point to immutable 15-minute RAM snapshots.
+
+Calendar create, update, delete, cancel, and respond support non-recurring items
+only. Organizer lifecycle operations combine Calendar Sync with MIME/iCalendar
+notifications, while attendee responses combine MeetingResponse with an
+optional reply. A multi-step operation records confirmed steps and returns
+`partial` after a later safe failure. Recurring series and exceptions remain
+read-only.
 
 Writes require account opt-in and a UUID; reported client name and version are
 diagnostic only. Resolve references and validate a write, including a 50,000
@@ -24,9 +31,10 @@ elicitation or generate a separate preview. A request to draft or review content
 must remain an agent workflow and must not call the write tool.
 
 Persist a pending content-free journal record only when committing, before the
-EAS request, and use the UUID as ClientId. A completed duplicate returns its
-stored result without another network request. Never retry an ambiguous mutation;
-return `OUTCOME_UNKNOWN` until a human reconciles it.
+first EAS mutation, and derive stable per-step ClientIds from the UUID. A
+completed duplicate returns its stored result without another network request.
+Never retry an ambiguous mutation; return `OUTCOME_UNKNOWN` until a human
+reconciles it. Serialize writes per account across stdio processes.
 
 ## Consequences
 

@@ -7,6 +7,7 @@ pub struct Report {
     pub version: &'static str,
     pub accounts: Vec<AccountReport>,
     pub self_write: bool,
+    pub meeting_directions: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,6 +19,7 @@ pub struct AccountReport {
     pub search: usize,
     pub attachment_checked: bool,
     pub writes_checked: bool,
+    pub calendar_writes_checked: bool,
     pub cold_mail_list_ms: u128,
     pub warm_mail_list_ms: u128,
 }
@@ -25,7 +27,7 @@ pub struct AccountReport {
 pub fn confirm() -> anyhow::Result<()> {
     writeln!(
         io::stderr(),
-        "This will send, reply, forward, and temporarily toggle read state only on your own mailboxes."
+        "This will exercise mail writes and temporary Calendar events and meetings only between your configured accounts."
     )?;
     write!(io::stderr(), "Type SELF-WRITE to continue: ")?;
     io::stderr().flush()?;

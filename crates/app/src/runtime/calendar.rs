@@ -136,9 +136,10 @@ impl Runtime {
         let body_limit = limit(input.body_limit, 12_000, 50_000)?;
         let reference = self.references.event(&input.event_ref)?;
         let backend = self.backend(&reference.account_id)?;
-        let result = backend.fetch_calendar(&reference.long_id, body_limit).await;
+        let account_email = backend.account().email;
+        let result = backend.fetch_calendar(&reference, body_limit).await;
         let event = self.account_result(&reference.account_id, result)?;
-        Ok((calendar_event(input.event_ref, &event, body_limit), Vec::new()))
+        Ok((calendar_event(input.event_ref, &event, &account_email, body_limit), Vec::new()))
     }
 
     fn calendar_backend(

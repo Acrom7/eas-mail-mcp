@@ -87,6 +87,7 @@ pub async fn check_account(
         search: search.items.len(),
         attachment_checked,
         writes_checked: self_write,
+        calendar_writes_checked: false,
         cold_mail_list_ms,
         warm_mail_list_ms,
     })
@@ -315,7 +316,7 @@ async fn wait_for_mail(
     anyhow::bail!("self-sent message did not arrive in Inbox within 30 seconds")
 }
 
-fn required<T>(response: ApiResponse<T>, operation: &str) -> anyhow::Result<T> {
+pub(super) fn required<T>(response: ApiResponse<T>, operation: &str) -> anyhow::Result<T> {
     if let Some(error) = response.error {
         anyhow::bail!("{operation} failed with {:?}: {}", error.code, error.message);
     }

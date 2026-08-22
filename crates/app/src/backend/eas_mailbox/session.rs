@@ -10,8 +10,8 @@ use eas_mail_protocol::{
 use tokio::sync::Mutex;
 
 use super::super::{
-    AccountBackend, BackendAccount, BackendCalendarSearch, BackendCapabilities, BackendEvent,
-    BackendMail, BackendSync, MailSource, OutgoingMail,
+    AccountBackend, BackendAccount, BackendCalendarMutation, BackendCalendarSearch,
+    BackendCapabilities, BackendEvent, BackendMail, BackendSync, MailSource, OutgoingMail,
 };
 use super::VerificationStage;
 use crate::config::AccountConfig;
@@ -250,6 +250,8 @@ impl AccountBackend for EasMailbox {
             calendar_availability: capabilities
                 .supports(eas_mail_protocol::Command::ResolveRecipients),
             mail_writes: capabilities.supports_writes(),
+            personal_calendar_writes: capabilities.supports_personal_calendar_writes(),
+            meeting_lifecycle: capabilities.supports_meeting_lifecycle(),
         })
     }
 
@@ -295,8 +297,48 @@ impl AccountBackend for EasMailbox {
         self.search_events(query, limit).await
     }
 
-    async fn fetch_calendar(&self, long_id: &str, body_limit: usize) -> Result<BackendEvent> {
-        self.fetch_event(long_id, body_limit).await
+    async fn fetch_calendar(
+        &self,
+        source: &BackendEvent,
+        body_limit: usize,
+    ) -> Result<BackendEvent> {
+        self.fetch_event(source, body_limit).await
+    }
+
+    async fn resolve_calendar_source(&self, source: &BackendEvent) -> Result<BackendEvent> {
+        self.mutable_event(source).await
+    }
+
+    async fn create_calendar_item(
+        &self,
+        client_id: &str,
+        item: &BackendCalendarMutation,
+    ) -> Result<BackendEvent> {
+        self.add_event(client_id, item).await
+    }
+
+    async fn update_calendar_item(
+        &self,
+        source: &BackendEvent,
+        item: &BackendCalendarMutation,
+    ) -> Result<BackendEvent> {
+        self.change_event(source, item).await
+    }
+
+    async fn delete_calendar_item(&self, source: &BackendEvent) -> Result<()> {
+        self.delete_event(source).await
+    }
+
+    async fn respond_calendar_item(
+        &self,
+        source: &BackendEvent,
+        response: eas_mail_protocol::MeetingResponseChoice,
+    ) -> Result<Option<String>> {
+        self.respond_event(source, response).await
+    }
+
+    async fn send_calendar_message(&self, client_id: &str, mime: Vec<u8>) -> Result<()> {
+        self.send_calendar_mime(client_id, mime).await
     }
 
     async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()> {

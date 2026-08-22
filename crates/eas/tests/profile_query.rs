@@ -74,6 +74,7 @@ fn compact_query_encodes_every_command_and_policy_form() -> eas_mail_protocol::R
         (Command::SmartForward, 0x02),
         (Command::SmartReply, 0x03),
         (Command::FolderSync, 0x09),
+        (Command::MeetingResponse, 0x0F),
         (Command::Search, 0x10),
         (Command::ItemOperations, 0x13),
         (Command::Provision, 0x14),

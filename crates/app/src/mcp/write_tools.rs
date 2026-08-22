@@ -4,7 +4,9 @@ use rmcp::{tool, tool_router};
 use super::MailMcpServer;
 use crate::ApiResponse;
 use crate::model::{
-    MailForwardInput, MailReplyInput, MailSendInput, MarkReadInput, OperationResult,
+    CalendarCancelInput, CalendarCreateInput, CalendarDeleteInput, CalendarOperationResult,
+    CalendarRespondInput, CalendarUpdateInput, MailForwardInput, MailReplyInput, MailSendInput,
+    MarkReadInput, OperationResult,
 };
 
 #[tool_router(router = write_tools, vis = "pub(crate)")]
@@ -79,5 +81,95 @@ impl MailMcpServer {
         Parameters(input): Parameters<MailForwardInput>,
     ) -> Json<ApiResponse<OperationResult>> {
         Json(self.runtime.mail_forward(input).await)
+    }
+
+    /// Immediately creates a non-recurring event or meeting for a write-enabled account.
+    #[tool(
+        name = "calendar_create",
+        annotations(
+            title = "Create calendar event",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_create(
+        &self,
+        Parameters(input): Parameters<CalendarCreateInput>,
+    ) -> Json<ApiResponse<CalendarOperationResult>> {
+        Json(self.runtime.calendar_create(input).await)
+    }
+
+    /// Immediately updates a referenced non-recurring event or organizer meeting.
+    #[tool(
+        name = "calendar_update",
+        annotations(
+            title = "Update calendar event",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_update(
+        &self,
+        Parameters(input): Parameters<CalendarUpdateInput>,
+    ) -> Json<ApiResponse<CalendarOperationResult>> {
+        Json(self.runtime.calendar_update(input).await)
+    }
+
+    /// Immediately deletes a referenced non-recurring personal event.
+    #[tool(
+        name = "calendar_delete",
+        annotations(
+            title = "Delete personal calendar event",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_delete(
+        &self,
+        Parameters(input): Parameters<CalendarDeleteInput>,
+    ) -> Json<ApiResponse<CalendarOperationResult>> {
+        Json(self.runtime.calendar_delete(input).await)
+    }
+
+    /// Immediately cancels a referenced non-recurring organizer meeting.
+    #[tool(
+        name = "calendar_cancel",
+        annotations(
+            title = "Cancel calendar meeting",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_cancel(
+        &self,
+        Parameters(input): Parameters<CalendarCancelInput>,
+    ) -> Json<ApiResponse<CalendarOperationResult>> {
+        Json(self.runtime.calendar_cancel(input).await)
+    }
+
+    /// Immediately responds to a referenced non-recurring received meeting.
+    #[tool(
+        name = "calendar_respond",
+        annotations(
+            title = "Respond to calendar meeting",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn calendar_respond(
+        &self,
+        Parameters(input): Parameters<CalendarRespondInput>,
+    ) -> Json<ApiResponse<CalendarOperationResult>> {
+        Json(self.runtime.calendar_respond(input).await)
     }
 }

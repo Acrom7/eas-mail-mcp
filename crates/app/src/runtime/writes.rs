@@ -37,6 +37,7 @@ impl Runtime {
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
         let mail = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&mail.account_id)?;
+        let _guard = self.write_locks.acquire(&mail.account_id).await?;
         let begin =
             self.begin_write(&mail.account_id, "mail_mark_read", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -60,6 +61,7 @@ impl Runtime {
         };
         validate_message(&message)?;
         let backend = self.require_write(&input.account_id)?;
+        let _guard = self.write_locks.acquire(&input.account_id).await?;
         let begin =
             self.begin_write(&input.account_id, "mail_send", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -78,6 +80,7 @@ impl Runtime {
         let backend = self.require_write(&mail.account_id)?;
         let message = reply_message(&mail, &backend.account().email, &input)?;
         validate_message(&message)?;
+        let _guard = self.write_locks.acquire(&mail.account_id).await?;
         let begin =
             self.begin_write(&mail.account_id, "mail_reply", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -99,6 +102,7 @@ impl Runtime {
         message.cc.clone_from(&input.cc);
         message.bcc.clone_from(&input.bcc);
         validate_message(&message)?;
+        let _guard = self.write_locks.acquire(&mail.account_id).await?;
         let begin =
             self.begin_write(&mail.account_id, "mail_forward", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -109,28 +113,58 @@ impl Runtime {
             .map(|value| (value, Vec::new()))
     }
 
-    fn begin_write<T: Serialize>(
+    pub(super) fn begin_write<T: Serialize>(
         &self,
         account_id: &str,
         kind: &str,
         operation_id: &str,
         payload: &T,
     ) -> Result<JournalBegin> {
+        let record = self.write_record(account_id, kind, operation_id, payload)?;
+        self.journal.begin(&record)
+    }
+
+    pub(super) fn replay_write<T: Serialize>(
+        &self,
+        kind: &str,
+        operation_id: &str,
+        payload: &T,
+    ) -> Result<Option<JournalRecord>> {
+        let candidate = self.write_record("", kind, operation_id, payload)?;
+        let Some(existing) = self.journal.lookup(&candidate.operation_id)? else {
+            return Ok(None);
+        };
+        if existing.kind != candidate.kind || existing.payload_hmac != candidate.payload_hmac {
+            return Err(AppError::new(
+                ErrorCode::IdempotencyConflict,
+                "idempotency key was already used for different input",
+            ));
+        }
+        Ok(Some(existing))
+    }
+
+    fn write_record<T: Serialize>(
+        &self,
+        account_id: &str,
+        kind: &str,
+        operation_id: &str,
+        payload: &T,
+    ) -> Result<JournalRecord> {
         let parsed = uuid::Uuid::parse_str(operation_id).map_err(|_| {
             AppError::new(ErrorCode::ValidationFailed, "idempotency_key must be a UUID")
         })?;
         let canonical = serde_json::to_vec(payload).map_err(|_| {
             AppError::new(ErrorCode::ValidationFailed, "cannot canonicalize operation input")
         })?;
-        let record = JournalRecord {
+        Ok(JournalRecord {
             operation_id: parsed.to_string(),
             account_id: account_id.to_owned(),
             kind: kind.to_owned(),
             payload_hmac: payload_fingerprint(&self.hmac_key, &canonical)?,
             client_id: parsed.to_string(),
             status: OperationStatus::Pending,
-        };
-        self.journal.begin(&record)
+            completed_steps: 0,
+        })
     }
 
     fn finish_write(
@@ -141,7 +175,7 @@ impl Runtime {
     ) -> Result<OperationResult> {
         match result {
             Ok(()) => {
-                self.journal.finish(operation_id, OperationStatus::Succeeded)?;
+                self.journal.finish(operation_id, OperationStatus::Succeeded, 0)?;
                 Ok(OperationResult {
                     operation_id: operation_id.into(),
                     status: OperationState::Succeeded,
@@ -149,7 +183,7 @@ impl Runtime {
                 })
             }
             Err(error) if error.envelope.code == ErrorCode::OutcomeUnknown => {
-                self.journal.finish(operation_id, OperationStatus::Unknown)?;
+                self.journal.finish(operation_id, OperationStatus::Unknown, 0)?;
                 Err(error.operation(operation_id))
             }
             Err(error) if error.envelope.code == ErrorCode::RemoteWipe => {
@@ -157,7 +191,7 @@ impl Runtime {
                 Err(error.operation(operation_id))
             }
             Err(error) => {
-                self.journal.finish(operation_id, OperationStatus::Failed)?;
+                self.journal.finish(operation_id, OperationStatus::Failed, 0)?;
                 Err(error.operation(operation_id))
             }
         }
@@ -170,6 +204,9 @@ fn existing_result(record: JournalRecord) -> OperationResult {
             (OperationState::Succeeded, "the prior operation was confirmed")
         }
         OperationStatus::Failed => (OperationState::Failed, "the prior operation failed safely"),
+        OperationStatus::Partial => {
+            (OperationState::Failed, "the prior operation completed only some Calendar steps")
+        }
         OperationStatus::Pending | OperationStatus::Unknown => {
             (OperationState::Unknown, "the prior operation outcome is unknown")
         }

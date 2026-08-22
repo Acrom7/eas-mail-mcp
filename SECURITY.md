@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest release. Public beta binaries are
+Security fixes are applied to the latest release. Public binaries are
 distributed through platform-restricted npm packages for macOS only.
 
 ## Reporting a vulnerability
@@ -26,6 +26,9 @@ An explicit write-tool call executes immediately after validation. The server
 does not provide a human-confirmation boundary; draft review is an agent-client
 workflow and must happen before the tool call. Any client approval policy is
 user-experience configuration rather than authentication or authorization.
+Calendar operations can have several external steps. Confirmed step bits are
+stored without event content; a later safe failure returns `partial`, while an
+ambiguous step returns `unknown`. Neither outcome is blindly retried.
 
 ## Network boundary
 

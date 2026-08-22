@@ -178,12 +178,25 @@ pub(super) fn parse_calendar_fields(application: &Element) -> CalendarFields {
         all_day: bool_patch(application, "Calendar", "AllDayEvent"),
         location: string_patch(application, "Calendar", "Location"),
         organizer,
+        organizer_email: string_patch(application, "Calendar", "OrganizerEmail"),
         attendees: application.child("Calendar", "Attendees").map_or(Patch::Missing, |container| {
             Patch::Value(
                 container
                     .children()
                     .filter(|child| child.name == "Attendee")
-                    .filter_map(|attendee| direct_text(attendee, "Calendar", "Email"))
+                    .filter_map(|attendee| {
+                        let email = direct_text(attendee, "Calendar", "Email")?;
+                        (!email.is_empty()).then(|| crate::CalendarAttendee {
+                            email,
+                            name: direct_text(attendee, "Calendar", "Name").unwrap_or_default(),
+                            attendee_type: direct_text(attendee, "Calendar", "AttendeeType")
+                                .and_then(|value| value.parse().ok())
+                                .unwrap_or(1),
+                            attendee_status: direct_text(attendee, "Calendar", "AttendeeStatus")
+                                .and_then(|value| value.parse().ok())
+                                .unwrap_or(0),
+                        })
+                    })
                     .collect(),
             )
         }),
@@ -191,6 +204,12 @@ pub(super) fn parse_calendar_fields(application: &Element) -> CalendarFields {
         recurrence: recurrence_patch(application),
         exceptions: exceptions_patch(application),
         meeting_status: number_patch(application, "MeetingStatus"),
+        uid: string_patch(application, "Calendar", "UID"),
+        dt_stamp: datetime_patch(application, "DtStamp"),
+        time_zone: string_patch(application, "Calendar", "TimeZone"),
+        busy_status: number_patch(application, "BusyStatus"),
+        response_requested: bool_patch(application, "Calendar", "ResponseRequested"),
+        response_type: number_patch(application, "ResponseType"),
     }
 }
 

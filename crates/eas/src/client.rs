@@ -5,7 +5,8 @@ use crate::protocol::{self, ComposeSource, PolicyDecision};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    CalendarItemResult, CollectionKind, Command, EasError, FolderPage, ItemResult, MutationResult,
+    CalendarApplication, CalendarItemResult, CollectionKind, Command, EasError, FolderPage,
+    ItemResult, MeetingResponseChoice, MeetingResponseResult, MutationResult,
     RecipientAvailability, RequestSafety, Result, SearchCalendarPage, SearchMail, SyncPage,
     Transport,
 };
@@ -38,6 +39,20 @@ impl ServerCapabilities {
         [Command::SendMail, Command::SmartReply, Command::SmartForward]
             .into_iter()
             .all(|command| self.supports(command))
+    }
+
+    /// Reports whether personal Calendar Add, Change, and Delete can use Sync.
+    #[must_use]
+    pub fn supports_personal_calendar_writes(&self) -> bool {
+        self.supports(Command::Sync)
+    }
+
+    /// Reports whether the full meeting response lifecycle is advertised.
+    #[must_use]
+    pub fn supports_meeting_lifecycle(&self) -> bool {
+        self.supports_personal_calendar_writes()
+            && self.supports(Command::SendMail)
+            && self.supports(Command::MeetingResponse)
     }
 }
 
@@ -73,6 +88,7 @@ impl EasClient {
             Command::SendMail,
             Command::SmartReply,
             Command::SmartForward,
+            Command::MeetingResponse,
             Command::ResolveRecipients,
         ]
         .into_iter()
@@ -260,6 +276,21 @@ impl EasClient {
         protocol::parse_calendar_item_fetch(&response.body)
     }
 
+    /// Fetches a Calendar item by LongId or collection/server identifiers.
+    pub async fn fetch_calendar_source(
+        &self,
+        key: u32,
+        long_id: Option<&str>,
+        collection_id: Option<&str>,
+        server_id: Option<&str>,
+        body_limit: usize,
+    ) -> Result<CalendarItemResult> {
+        let body =
+            protocol::build_item_fetch(long_id, collection_id, server_id, body_limit.min(50_000))?;
+        let response = self.read_command(Command::ItemOperations, &body, key).await?;
+        protocol::parse_calendar_item_fetch(&response.body)
+    }
+
     /// Downloads one attachment on demand.
     pub async fn fetch_attachment(&self, key: u32, reference: &str) -> Result<Vec<u8>> {
         let body = protocol::build_attachment_fetch(reference)?;
@@ -279,6 +310,60 @@ impl EasClient {
         let body = protocol::build_mark_read(collection_id, server_id, sync_key, is_read)?;
         let response = self.mutation_command(Command::Sync, &body, key).await?;
         protocol::parse_mutation_sync(&response.body)
+    }
+
+    /// Adds one non-recurring Calendar item with no automatic network retry.
+    pub async fn calendar_add(
+        &self,
+        key: u32,
+        collection_id: &str,
+        sync_key: &str,
+        client_id: &str,
+        item: &CalendarApplication,
+    ) -> Result<MutationResult> {
+        let body = protocol::build_calendar_add(collection_id, sync_key, client_id, item)?;
+        let response = self.mutation_command(Command::Sync, &body, key).await?;
+        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
+    }
+
+    /// Replaces one non-recurring Calendar item with no automatic network retry.
+    pub async fn calendar_change(
+        &self,
+        key: u32,
+        collection_id: &str,
+        server_id: &str,
+        sync_key: &str,
+        item: &CalendarApplication,
+    ) -> Result<MutationResult> {
+        let body = protocol::build_calendar_change(collection_id, sync_key, server_id, item)?;
+        let response = self.mutation_command(Command::Sync, &body, key).await?;
+        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
+    }
+
+    /// Deletes one Calendar item with no automatic network retry.
+    pub async fn calendar_delete(
+        &self,
+        key: u32,
+        collection_id: &str,
+        server_id: &str,
+        sync_key: &str,
+    ) -> Result<MutationResult> {
+        let body = protocol::build_calendar_delete(collection_id, sync_key, server_id)?;
+        let response = self.mutation_command(Command::Sync, &body, key).await?;
+        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
+    }
+
+    /// Responds to one meeting request with no automatic network retry.
+    pub async fn meeting_response(
+        &self,
+        key: u32,
+        collection_id: &str,
+        request_id: &str,
+        response: MeetingResponseChoice,
+    ) -> Result<MeetingResponseResult> {
+        let body = protocol::build_meeting_response(collection_id, request_id, response)?;
+        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
+        protocol::parse_meeting_response(&response.body)
     }
 
     /// Sends a new MIME message with an EAS ClientId.
@@ -324,6 +409,10 @@ impl EasClient {
             self.transport.command(command, body, Some(key), RequestSafety::Mutation).await?;
         normalize_command_response(response)
     }
+}
+
+fn calendar_mutation_result(result: MutationResult) -> Result<MutationResult> {
+    if result.status == 3 { Err(EasError::InvalidSyncKey) } else { Ok(result) }
 }
 
 fn normalize_command_response(

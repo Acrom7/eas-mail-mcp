@@ -10,8 +10,8 @@ use crate::Result;
 pub use eas_mailbox::EasMailbox;
 pub(crate) use eas_mailbox::VerificationStage;
 pub use model::{
-    BackendAccount, BackendCalendarSearch, BackendCapabilities, BackendEvent, BackendMail,
-    BackendSync, MailSource, OutgoingMail,
+    BackendAccount, BackendCalendarMutation, BackendCalendarSearch, BackendCapabilities,
+    BackendEvent, BackendMail, BackendSync, MailSource, OutgoingMail,
 };
 
 /// Network-backed operations for exactly one configured account.
@@ -53,7 +53,41 @@ pub trait AccountBackend: Send + Sync {
     async fn search_calendar(&self, query: &str, limit: usize) -> Result<BackendCalendarSearch>;
 
     /// Fetches one full Calendar item from a Search LongId.
-    async fn fetch_calendar(&self, long_id: &str, body_limit: usize) -> Result<BackendEvent>;
+    async fn fetch_calendar(
+        &self,
+        source: &BackendEvent,
+        body_limit: usize,
+    ) -> Result<BackendEvent>;
+
+    /// Resolves collection/server identifiers for one mutable Calendar source.
+    async fn resolve_calendar_source(&self, source: &BackendEvent) -> Result<BackendEvent>;
+
+    /// Adds one non-recurring Calendar item.
+    async fn create_calendar_item(
+        &self,
+        client_id: &str,
+        item: &BackendCalendarMutation,
+    ) -> Result<BackendEvent>;
+
+    /// Replaces one non-recurring Calendar item.
+    async fn update_calendar_item(
+        &self,
+        source: &BackendEvent,
+        item: &BackendCalendarMutation,
+    ) -> Result<BackendEvent>;
+
+    /// Deletes one Calendar item.
+    async fn delete_calendar_item(&self, source: &BackendEvent) -> Result<()>;
+
+    /// Applies MeetingResponse and returns the resulting Calendar server ID.
+    async fn respond_calendar_item(
+        &self,
+        source: &BackendEvent,
+        response: eas_mail_protocol::MeetingResponseChoice,
+    ) -> Result<Option<String>>;
+
+    /// Sends a prebuilt calendar MIME message through EAS SendMail.
+    async fn send_calendar_message(&self, client_id: &str, mime: Vec<u8>) -> Result<()>;
 
     /// Changes one message's read state.
     async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()>;

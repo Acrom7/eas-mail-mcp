@@ -3,8 +3,8 @@
 ![EAS Mail MCP connects mail and calendar data to local AI tools](docs/assets/readme-hero.png)
 
 `eas-mail-mcp` is a local Rust MCP server for Exchange ActiveSync 14.1. It gives
-supported AI clients structured mail tools and read-only calendar tools without
-a daemon, GUI, mailbox database, or hosted intermediary service.
+supported AI clients structured mail, availability, and calendar lifecycle
+tools without a daemon, GUI, mailbox database, or hosted intermediary service.
 
 Public binaries contain no mail server, domain, realm, certificate, account, or
 password. A user imports or creates a validated local endpoint profile during
@@ -103,6 +103,14 @@ account's own Calendar items. Compact results carry a 15-minute `event_ref`;
 `calendar_get` uses ItemOperations to fetch exactly that event, including body,
 attendees, recurrence, and exceptions, only when requested.
 
+Calendar writes use that same bounded reference path. Personal events are
+created, updated, or deleted with Calendar Sync mutations. Meetings additionally
+send standards-based MIME/iCalendar `REQUEST`, `CANCEL`, or `REPLY` messages;
+received invitations use EAS `MeetingResponse`. Recurring series and individual
+occurrences remain read-only. Calendar Sync is initialized without downloading
+events and is used as a metadata-only UID fallback only when Exchange does not
+return mutable item IDs.
+
 ### State and storage
 
 | Location | Stored data |
@@ -121,7 +129,8 @@ creates a new immutable snapshot, capped at 100 returned records per page.
 
 ### Write safety
 
-Mail writes are disabled per account by default. Once `write_enabled` is set,
+Mail and calendar writes are disabled per account by default. Once
+`write_enabled` is set,
 client name and version do not add another authorization gate. Every write
 requires a caller-provided UUID `idempotency_key`. Before contacting Exchange,
 the process records a payload HMAC and `pending` state in SQLite. Reusing the
@@ -134,10 +143,12 @@ explicit user request to perform that mutation; asking to draft or review a
 message must not trigger the tool. Outgoing bodies are limited to 50,000 Unicode
 characters before any journal or network write.
 
-Read requests may retry transient network failures. Mail mutations are not
+Read requests may retry transient network failures. Mutations are not
 blindly retried: if the connection fails after a request may have reached
 Exchange, the result is `OUTCOME_UNKNOWN` rather than a possible duplicate
-message. Generated client configuration does not add write-tool approval
+message or meeting. Multi-step calendar operations report confirmed steps and
+persist `partial` when the calendar item changed but a guaranteed-safe later
+notification failed. Generated client configuration does not add write-tool approval
 overrides; a possible client-level prompt is controlled entirely by that client.
 Neither client policy nor self-reported client identity is an authentication
 boundary. See [Security](SECURITY.md) for the full threat model.
@@ -172,8 +183,11 @@ Read tools:
 Write tools:
 
 - `mail_mark_read`, `mail_send`, `mail_reply`, `mail_forward`
+- `calendar_create`, `calendar_update`, `calendar_delete`
+- `calendar_cancel`, `calendar_respond`
 
-Writes are disabled per account by default. Every write requires a UUID
+Writes are disabled per account by default. The same account switch controls
+mail and calendar mutations. Every write requires a UUID
 `idempotency_key`; a content-free SQLite journal prevents blind replay after an
 ambiguous network result. Passwords, Device IDs, policy state, and the journal
 HMAC key are stored in macOS Keychain.
@@ -185,11 +199,11 @@ only that process-local mail synchronization state.
 
 ## Install and configure
 
-The beta supports macOS 14+ on Apple Silicon and Intel. Windows and Linux are
-not supported in `0.2.0`.
+The stable release supports macOS 14+ on Apple Silicon and Intel. Windows and
+Linux are not supported in `0.2.0`.
 
 ```bash
-npm install -g eas-mail-mcp@next
+npm install -g eas-mail-mcp
 eas-mail-mcp setup
 ```
 
@@ -253,8 +267,8 @@ IMAP, Microsoft Graph, custom EAS paths, TLS bypasses, or client identity
 spoofing.
 
 The recommended client setup creates a backup, registers the direct Rust
-binary, and removes obsolete write approval overrides created by earlier beta
-builds:
+binary, and removes obsolete write approval overrides created by earlier
+versions:
 
 ```bash
 eas-mail-mcp client configure codex

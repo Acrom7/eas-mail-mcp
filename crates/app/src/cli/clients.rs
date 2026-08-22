@@ -16,7 +16,17 @@ use super::{ClientArgs, ClientCommand};
 use crate::{AppError, ErrorCode, Paths, Result};
 
 const SERVER: &str = "eas-mail";
-const WRITE_TOOLS: [&str; 4] = ["mail_mark_read", "mail_send", "mail_reply", "mail_forward"];
+const WRITE_TOOLS: [&str; 9] = [
+    "mail_mark_read",
+    "mail_send",
+    "mail_reply",
+    "mail_forward",
+    "calendar_create",
+    "calendar_update",
+    "calendar_delete",
+    "calendar_cancel",
+    "calendar_respond",
+];
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub(super) enum ClientKind {

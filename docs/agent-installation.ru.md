@@ -15,10 +15,10 @@ npm-пакет. Сервер запускается самим MCP-клиент�
 
 ## Установка и настройка
 
-1. Установите текущую beta и проверьте выбранный нативный бинарь:
+1. Установите стабильный релиз и проверьте выбранный нативный бинарь:
 
    ```bash
-   npm install -g eas-mail-mcp@next
+   npm install -g eas-mail-mcp
    eas-mail-mcp --version
    eas-mail-mcp native-path
    ```

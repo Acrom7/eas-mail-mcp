@@ -8,7 +8,9 @@ use eas_mail_protocol::protocol::{
     parse_mutation_sync, parse_provision, parse_sync,
 };
 use eas_mail_protocol::wbxml::{Element, decode, encode};
-use eas_mail_protocol::{ChangeData, ChangeKind, CollectionKind, EasError, Patch};
+use eas_mail_protocol::{
+    CalendarAttendee, ChangeData, ChangeKind, CollectionKind, EasError, Patch,
+};
 
 #[test]
 fn calendar_sync_preserves_recurrence_exceptions_and_order() -> eas_mail_protocol::Result<()> {
@@ -27,7 +29,15 @@ fn calendar_sync_preserves_recurrence_exceptions_and_order() -> eas_mail_protoco
     };
     assert_eq!(fields.subject, Patch::Value("Planning".into()));
     assert_eq!(fields.organizer, Patch::Value("organizer@example.com".into()));
-    assert_eq!(fields.attendees, Patch::Value(vec!["guest@example.com".into()]));
+    assert_eq!(
+        fields.attendees,
+        Patch::Value(vec![CalendarAttendee {
+            email: "guest@example.com".into(),
+            name: String::new(),
+            attendee_type: 1,
+            attendee_status: 0,
+        }])
+    );
     assert_eq!(fields.reminder_minutes, Patch::Value(15));
     assert_eq!(fields.meeting_status, Patch::Value(3));
     let Patch::Value(recurrence) = &fields.recurrence else {

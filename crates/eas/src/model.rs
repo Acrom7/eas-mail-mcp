@@ -111,8 +111,10 @@ pub struct CalendarFields {
     pub location: Patch<String>,
     /// Organizer display name or address.
     pub organizer: Patch<String>,
-    /// Attendee addresses.
-    pub attendees: Patch<Vec<String>>,
+    /// Organizer address used by meeting lifecycle operations.
+    pub organizer_email: Patch<String>,
+    /// Meeting attendees and their EAS roles and statuses.
+    pub attendees: Patch<Vec<CalendarAttendee>>,
     /// Reminder in minutes.
     pub reminder_minutes: Patch<u32>,
     /// Recurrence fields retained for read-only clients.
@@ -121,6 +123,64 @@ pub struct CalendarFields {
     pub exceptions: Patch<Vec<BTreeMap<String, String>>>,
     /// EAS meeting status.
     pub meeting_status: Patch<u16>,
+    /// Stable iCalendar UID.
+    pub uid: Patch<String>,
+    /// Last modification timestamp supplied by Exchange.
+    pub dt_stamp: Patch<Option<DateTime<Utc>>>,
+    /// Base64-encoded EAS timezone blob.
+    pub time_zone: Patch<String>,
+    /// EAS free/busy status.
+    pub busy_status: Patch<u8>,
+    /// Whether the organizer requests attendee responses.
+    pub response_requested: Patch<bool>,
+    /// Current user's EAS meeting response type.
+    pub response_type: Patch<u8>,
+}
+
+/// One Calendar attendee parsed from or sent to Exchange.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarAttendee {
+    /// SMTP address.
+    pub email: String,
+    /// Optional display name.
+    pub name: String,
+    /// EAS attendee role code: required, optional, or resource.
+    pub attendee_type: u8,
+    /// EAS participation status code.
+    pub attendee_status: u8,
+}
+
+/// Complete non-recurring Calendar item used for Add and Change commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarApplication {
+    /// Base64-encoded 172-byte EAS timezone structure.
+    pub time_zone: String,
+    /// Stable iCalendar UID.
+    pub uid: String,
+    /// UTC modification timestamp.
+    pub dt_stamp: DateTime<Utc>,
+    /// UTC event start.
+    pub starts_at: DateTime<Utc>,
+    /// UTC exclusive event end.
+    pub ends_at: DateTime<Utc>,
+    /// All-day marker.
+    pub all_day: bool,
+    /// Event subject.
+    pub subject: String,
+    /// Plain-text body.
+    pub body: String,
+    /// Display location.
+    pub location: String,
+    /// Optional reminder in minutes.
+    pub reminder_minutes: Option<u32>,
+    /// EAS free/busy status.
+    pub busy_status: u8,
+    /// EAS meeting status.
+    pub meeting_status: u16,
+    /// Whether responses are requested.
+    pub response_requested: bool,
+    /// Meeting attendees.
+    pub attendees: Vec<CalendarAttendee>,
 }
 
 /// Payload of an EAS Sync change.
@@ -187,6 +247,10 @@ pub struct SearchMail {
 pub struct SearchCalendar {
     /// LongId used by ItemOperations.
     pub long_id: String,
+    /// Calendar collection identifier when supplied by Exchange.
+    pub collection_id: Option<String>,
+    /// Calendar server identifier when supplied by Exchange.
+    pub server_id: Option<String>,
     /// Parsed summary fields.
     pub fields: CalendarFields,
 }
@@ -210,6 +274,10 @@ pub struct ItemResult {
 /// Full calendar item returned by ItemOperations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CalendarItemResult {
+    /// Calendar collection identifier when supplied by Exchange.
+    pub collection_id: Option<String>,
+    /// Calendar server identifier when supplied by Exchange.
+    pub server_id: Option<String>,
     /// Parsed calendar fields.
     pub fields: CalendarFields,
 }
@@ -294,4 +362,38 @@ pub struct MutationResult {
     pub sync_key: Option<String>,
     /// Server item identifier when applicable.
     pub server_id: Option<String>,
+}
+
+/// Response choice encoded by the EAS MeetingResponse command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeetingResponseChoice {
+    /// Accept the meeting.
+    Accept,
+    /// Tentatively accept the meeting.
+    Tentative,
+    /// Decline the meeting.
+    Decline,
+}
+
+impl MeetingResponseChoice {
+    /// Returns the EAS UserResponse numeric value.
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::Accept => 1,
+            Self::Tentative => 2,
+            Self::Decline => 3,
+        }
+    }
+}
+
+/// Parsed EAS MeetingResponse result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeetingResponseResult {
+    /// Command status.
+    pub status: u16,
+    /// Request identifier echoed by Exchange.
+    pub request_id: String,
+    /// New Calendar server identifier for accepted or tentative meetings.
+    pub calendar_id: Option<String>,
 }

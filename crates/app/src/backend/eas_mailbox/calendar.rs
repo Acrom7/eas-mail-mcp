@@ -44,6 +44,8 @@ impl EasMailbox {
             .map(|event| BackendEvent {
                 account_id: self.account.account_id.clone(),
                 long_id: event.long_id,
+                collection_id: event.collection_id,
+                server_id: event.server_id,
                 fields: event.fields,
             })
             .collect();
@@ -52,23 +54,44 @@ impl EasMailbox {
 
     pub(super) async fn fetch_event(
         &self,
-        long_id: &str,
+        source: &BackendEvent,
         body_limit: usize,
     ) -> Result<BackendEvent> {
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
         let body_limit = body_limit.min(policy(&state)?.body_limit);
-        let mut result =
-            self.client.fetch_calendar_item(state.policy_key, long_id, body_limit).await;
+        let long_id = (!source.long_id.is_empty()).then_some(source.long_id.as_str());
+        let mut result = self
+            .client
+            .fetch_calendar_source(
+                state.policy_key,
+                long_id,
+                source.collection_id.as_deref(),
+                source.server_id.as_deref(),
+                body_limit,
+            )
+            .await;
         if matches!(result, Err(EasError::PolicyRefreshRequired)) {
             self.refresh_policy(&mut state).await?;
             let body_limit = body_limit.min(policy(&state)?.body_limit);
-            result = self.client.fetch_calendar_item(state.policy_key, long_id, body_limit).await;
+            result = self
+                .client
+                .fetch_calendar_source(
+                    state.policy_key,
+                    long_id,
+                    source.collection_id.as_deref(),
+                    source.server_id.as_deref(),
+                    body_limit,
+                )
+                .await;
         }
+        let result = result.map_err(self.scoped_error())?;
         Ok(BackendEvent {
             account_id: self.account.account_id.clone(),
-            long_id: long_id.to_owned(),
-            fields: result.map_err(self.scoped_error())?.fields,
+            long_id: source.long_id.clone(),
+            collection_id: result.collection_id.or_else(|| source.collection_id.clone()),
+            server_id: result.server_id.or_else(|| source.server_id.clone()),
+            fields: result.fields,
         })
     }
 

@@ -89,6 +89,20 @@ pub fn options_with_calendar() -> ExpectedCall {
     }
 }
 
+pub fn options_with_calendar_writes() -> ExpectedCall {
+    ExpectedCall::Options {
+        status: 200,
+        headers: BTreeMap::from([
+            ("ms-asprotocolversions".into(), "14.1".into()),
+            (
+                "ms-asprotocolcommands".into(),
+                "Provision,FolderSync,Sync,Search,ItemOperations,SendMail,SmartReply,SmartForward,MeetingResponse,ResolveRecipients"
+                    .into(),
+            ),
+        ]),
+    }
+}
+
 pub fn read(command: Command, body: Vec<u8>, response: Vec<u8>) -> ExpectedCall {
     call(command, body, Some(123), RequestSafety::RetrySafe, 200, response)
 }

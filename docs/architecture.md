@@ -84,13 +84,27 @@ Own-calendar lookup uses `Search` with `Class=Calendar`. Compact results receive
 15-minute process-local references; `calendar_get` fetches one LongId through
 ItemOperations. There is no full-calendar synchronization or calendar snapshot.
 
+Calendar lifecycle mutations resolve one referenced item through ItemOperations,
+then use Calendar `Sync/Add`, `Change`, or `Delete`. A collection SyncKey is
+initialized without requesting changes. If ItemOperations omits mutable IDs, a
+bounded metadata-only `FilterType=6` Sync scan discards every event except the
+matching UID. Invalid keys reset only that Calendar collection. Organizer
+notifications and attendee replies are plain-text plus `text/calendar` MIME
+sent through EAS SendMail; responses also use MeetingResponse.
+
+Every mail or calendar write takes a per-account advisory file lock shared by
+independent stdio processes. Multi-step Calendar operations checkpoint a
+content-free completed-step bit mask. A safe failure after an earlier success is
+`partial`; an ambiguous network outcome is `unknown`. Neither state is retried
+with a new UUID automatically.
+
 ## Persistent state
 
 - Keychain: password, Device ID, policy state, and operation HMAC key.
 - Profile TOML: endpoint metadata and optional public trust certificate.
 - TOML: profile key, email, username, enabled state, and write permission.
-- SQLite: operation UUID, account, kind, payload HMAC, EAS ClientId, state, and
-  timestamps. No mailbox content is stored.
+- SQLite: operation UUID, account, kind, payload HMAC, EAS ClientId, state,
+  completed-step bit mask, and timestamps. No mailbox content is stored.
 - Cache: explicitly requested attachments, mode 0600, removed after 24 hours.
 
 ## MCP contract
@@ -99,7 +113,8 @@ All tool results use `data`, `error`, and `warnings`. One account may fail while
 another returns data. Mail limits are 100 records, 500-character previews,
 12,000 body characters by default, and 50,000 maximum. Availability accepts 20
 participants and 31 days, has 30-minute precision, and fails rather than
-truncating above 256 KiB. Calendar is read-only. Four mail
-writes require account opt-in and durable idempotency state before the EAS
-request. An explicit write-tool call validates and executes immediately; draft
-or review workflows remain in the agent and must not call the mutation tool.
+truncating above 256 KiB. The contract exposes 13 read tools, four mail writes,
+and five non-recurring Calendar writes. All mutations require account opt-in and
+durable idempotency state before the first external side effect. An explicit
+write-tool call validates and executes immediately; draft or review workflows
+remain in the agent and must not call the mutation tool.

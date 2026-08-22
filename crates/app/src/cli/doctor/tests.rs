@@ -69,6 +69,7 @@ fn doctor_remote_wipe_purges_persistent_account_data() -> anyhow::Result<()> {
         payload_hmac: "fixture".into(),
         client_id: "11111111-2222-4333-8444-555555555555".into(),
         status: OperationStatus::Pending,
+        completed_steps: 0,
     };
     let _ = journal.begin(&record)?;
 

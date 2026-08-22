@@ -17,6 +17,8 @@ pub enum OperationStatus {
     Succeeded,
     /// Exchange safely rejected the request.
     Failed,
+    /// Some confirmed steps succeeded before a later safe failure.
+    Partial,
     /// The request may have reached Exchange.
     Unknown,
 }
@@ -27,6 +29,7 @@ impl OperationStatus {
             Self::Pending => "pending",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
+            Self::Partial => "partial",
             Self::Unknown => "unknown",
         }
     }
@@ -36,6 +39,7 @@ impl OperationStatus {
             "pending" => Ok(Self::Pending),
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
+            "partial" => Ok(Self::Partial),
             "unknown" => Ok(Self::Unknown),
             _ => Err(storage_error()),
         }
@@ -57,6 +61,8 @@ pub struct JournalRecord {
     pub client_id: String,
     /// Durable state.
     pub status: OperationStatus,
+    /// Content-free bit mask of confirmed Calendar lifecycle steps.
+    pub completed_steps: u32,
 }
 
 /// Whether `begin` inserted a row or found the same prior operation.
@@ -74,8 +80,15 @@ pub trait OperationJournal: Send + Sync {
     fn lookup(&self, operation_id: &str) -> Result<Option<JournalRecord>>;
     /// Inserts a pending row or returns an existing matching row.
     fn begin(&self, record: &JournalRecord) -> Result<JournalBegin>;
+    /// Persists confirmed completed steps while an operation remains pending.
+    fn checkpoint(&self, operation_id: &str, completed_steps: u32) -> Result<()>;
     /// Changes durable operation state.
-    fn finish(&self, operation_id: &str, status: OperationStatus) -> Result<()>;
+    fn finish(
+        &self,
+        operation_id: &str,
+        status: OperationStatus,
+        completed_steps: u32,
+    ) -> Result<()>;
     /// Removes terminal rows older than 90 days.
     fn prune(&self) -> Result<usize>;
     /// Removes all operation metadata for one remotely wiped account.
@@ -102,10 +115,16 @@ impl SqliteJournal {
                    payload_hmac TEXT NOT NULL,
                    client_id TEXT NOT NULL,
                    status TEXT NOT NULL,
+                   completed_steps INTEGER NOT NULL DEFAULT 0,
                    created_at INTEGER NOT NULL,
                    updated_at INTEGER NOT NULL
-                 );
-                 UPDATE operations SET status='unknown', updated_at=unixepoch()
+                 );",
+            )
+            .map_err(|_| storage_error())?;
+        ensure_completed_steps_column(&connection)?;
+        connection
+            .execute_batch(
+                "UPDATE operations SET status='unknown', updated_at=unixepoch()
                  WHERE status='pending';",
             )
             .map_err(|_| storage_error())?;
@@ -145,7 +164,8 @@ impl OperationJournal for SqliteJournal {
             .lock()
             .map_err(|_| storage_error())?
             .query_row(
-                "SELECT operation_id, account_id, kind, payload_hmac, client_id, status
+                "SELECT operation_id, account_id, kind, payload_hmac, client_id, status,
+                        completed_steps
                  FROM operations WHERE operation_id=?1",
                 [operation_id],
                 row_to_record,
@@ -161,7 +181,8 @@ impl OperationJournal for SqliteJournal {
             .map_err(|_| storage_error())?;
         let existing = transaction
             .query_row(
-                "SELECT operation_id, account_id, kind, payload_hmac, client_id, status
+                "SELECT operation_id, account_id, kind, payload_hmac, client_id, status,
+                        completed_steps
                  FROM operations WHERE operation_id=?1",
                 [&record.operation_id],
                 row_to_record,
@@ -184,14 +205,16 @@ impl OperationJournal for SqliteJournal {
         transaction
             .execute(
                 "INSERT INTO operations
-                 (operation_id, account_id, kind, payload_hmac, client_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', unixepoch(), unixepoch())",
+                 (operation_id, account_id, kind, payload_hmac, client_id, status,
+                  completed_steps, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, unixepoch(), unixepoch())",
                 params![
                     record.operation_id,
                     record.account_id,
                     record.kind,
                     record.payload_hmac,
-                    record.client_id
+                    record.client_id,
+                    record.completed_steps
                 ],
             )
             .map_err(|_| storage_error())?;
@@ -199,7 +222,29 @@ impl OperationJournal for SqliteJournal {
         Ok(JournalBegin { record: record.clone(), inserted: true })
     }
 
-    fn finish(&self, operation_id: &str, status: OperationStatus) -> Result<()> {
+    fn checkpoint(&self, operation_id: &str, completed_steps: u32) -> Result<()> {
+        let updated = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error())?
+            .execute(
+                "UPDATE operations SET completed_steps=?1, updated_at=unixepoch()
+                 WHERE operation_id=?2 AND status='pending'",
+                params![completed_steps, operation_id],
+            )
+            .map_err(|_| storage_error())?;
+        if updated != 1 {
+            return Err(storage_error());
+        }
+        Ok(())
+    }
+
+    fn finish(
+        &self,
+        operation_id: &str,
+        status: OperationStatus,
+        completed_steps: u32,
+    ) -> Result<()> {
         if status == OperationStatus::Pending {
             return Err(AppError::new(
                 ErrorCode::StorageError,
@@ -211,8 +256,9 @@ impl OperationJournal for SqliteJournal {
             .lock()
             .map_err(|_| storage_error())?
             .execute(
-                "UPDATE operations SET status=?1, updated_at=unixepoch() WHERE operation_id=?2",
-                params![status.as_str(), operation_id],
+                "UPDATE operations SET status=?1, completed_steps=?2, updated_at=unixepoch()
+                 WHERE operation_id=?3",
+                params![status.as_str(), completed_steps, operation_id],
             )
             .map_err(|_| storage_error())?;
         if updated != 1 {
@@ -260,7 +306,24 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JournalRecord> {
         payload_hmac: row.get(3)?,
         client_id: row.get(4)?,
         status,
+        completed_steps: row.get(6)?,
     })
+}
+
+fn ensure_completed_steps_column(connection: &Connection) -> Result<()> {
+    let mut statement =
+        connection.prepare("PRAGMA table_info(operations)").map_err(|_| storage_error())?;
+    let columns =
+        statement.query_map([], |row| row.get::<_, String>(1)).map_err(|_| storage_error())?;
+    for column in columns {
+        if column.map_err(|_| storage_error())? == "completed_steps" {
+            return Ok(());
+        }
+    }
+    connection
+        .execute("ALTER TABLE operations ADD COLUMN completed_steps INTEGER NOT NULL DEFAULT 0", [])
+        .map_err(|_| storage_error())?;
+    Ok(())
 }
 
 fn storage_error() -> AppError {

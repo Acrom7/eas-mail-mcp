@@ -30,9 +30,9 @@ server processes; the harness enforces the same lifecycle automatically.
 
 ## Stage and inspect exact artifacts
 
-Push the accepted commit to `main`, then run `Stage npm release` with `next` for
-a prerelease or `latest` for a stable version. The workflow builds, audits, and
-submits all three tarballs to npm staging. Nothing is public yet.
+Push the accepted commit to `main`, then run `Stage npm release` with `latest`
+for a stable version. The workflow builds, audits, and submits all three
+tarballs to npm staging. Nothing is public yet.
 
 List and download each staged package:
 
@@ -65,12 +65,12 @@ Immediately verify root-package resolution in a clean npm prefix:
 
 ```bash
 PREFIX="$(mktemp -d)"
-npm install -g --prefix "$PREFIX" eas-mail-mcp@next
+npm install -g --prefix "$PREFIX" eas-mail-mcp@latest
 "$PREFIX/bin/eas-mail-mcp" --version --verbose
 "$PREFIX/bin/eas-mail-mcp" native-path
 ```
 
-Create the matching Git tag and source-only GitHub release only after this
-registry smoke succeeds. Provider-expansion pilots may run after the beta is
-public; they do not replace the generic profile, security, stdio, or package
-gates above.
+After the registry smoke succeeds, point `next` at the same stable version.
+Create the matching Git tag and source-only GitHub release only after both tags
+resolve to the accepted artifacts. Provider-expansion pilots do not replace the
+generic profile, security, stdio, or package gates above.

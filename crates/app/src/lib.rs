@@ -18,6 +18,7 @@ mod profiles;
 mod references;
 mod runtime;
 mod sanitize;
+mod write_lock;
 
 pub use config::{AccountConfig, AppConfig, Paths, load_config, save_config};
 pub use error::{AppError, ErrorCode, ErrorEnvelope, Result};

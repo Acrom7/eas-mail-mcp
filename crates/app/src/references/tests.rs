@@ -121,6 +121,8 @@ fn event(server_id: &str) -> BackendEvent {
     BackendEvent {
         account_id: "account".into(),
         long_id: server_id.into(),
+        collection_id: None,
+        server_id: None,
         fields: CalendarFields::default(),
     }
 }

@@ -8,6 +8,7 @@ fn status_parser_is_strict_and_complete() -> anyhow::Result<()> {
         ("pending", OperationStatus::Pending),
         ("succeeded", OperationStatus::Succeeded),
         ("failed", OperationStatus::Failed),
+        ("partial", OperationStatus::Partial),
         ("unknown", OperationStatus::Unknown),
     ] {
         assert_eq!(OperationStatus::parse(value)?, expected);
@@ -31,7 +32,7 @@ fn fingerprints_are_deterministic_and_content_sensitive() -> anyhow::Result<()> 
 fn pending_is_not_a_terminal_finish_state() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let journal = SqliteJournal::open(&directory.path().join("operations.sqlite"))?;
-    let result = journal.finish("missing", OperationStatus::Pending);
+    let result = journal.finish("missing", OperationStatus::Pending, 0);
     assert!(result.is_err_and(|error| error.envelope.code == ErrorCode::StorageError));
     Ok(())
 }

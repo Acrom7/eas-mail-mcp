@@ -1,4 +1,10 @@
 mod calendar;
+mod calendar_mime;
+mod calendar_prepare;
+mod calendar_schedule;
+mod calendar_write_result;
+mod calendar_write_support;
+mod calendar_writes;
 mod convert;
 mod outgoing;
 mod reads;
@@ -16,6 +22,7 @@ use crate::attachment_cache::AttachmentCache;
 use crate::backend::{AccountBackend, EasMailbox};
 use crate::model::{ApiResponse, SyncReport, Warning};
 use crate::references::{Clock, IdGenerator, RandomIds, References, SystemClock};
+use crate::write_lock::WriteLocks;
 use crate::{
     AppConfig, AppError, ErrorCode, ErrorEnvelope, KeychainStore, OperationJournal, Paths, Result,
     SecretStore, SqliteJournal,
@@ -30,6 +37,7 @@ pub struct Runtime {
     pub(super) attachments: AttachmentCache,
     pub(super) clock: Arc<dyn Clock>,
     pub(super) sync_reports: Mutex<BTreeMap<String, SyncReport>>,
+    pub(super) write_locks: WriteLocks,
 }
 
 impl Runtime {
@@ -93,6 +101,10 @@ impl Runtime {
         if hmac_key.len() != 32 {
             return Err(AppError::new(ErrorCode::StorageError, "journal HMAC key is invalid"));
         }
+        let lock_root = attachments_dir.parent().ok_or_else(|| {
+            AppError::new(ErrorCode::StorageError, "write lock directory is unavailable")
+        })?;
+        let write_locks = WriteLocks::new(lock_root.join("write-locks"))?;
         let attachments = AttachmentCache::new(attachments_dir, Arc::clone(&clock))?;
         let mut indexed = BTreeMap::new();
         for backend in backends {
@@ -112,6 +124,7 @@ impl Runtime {
             attachments,
             clock,
             sync_reports: Mutex::new(BTreeMap::new()),
+            write_locks,
         })
     }
 

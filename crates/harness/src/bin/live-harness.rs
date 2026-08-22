@@ -4,11 +4,14 @@ use std::sync::Arc;
 use clap::Parser;
 use eas_mail_mcp::{Paths, Runtime, load_config, load_profile_registry};
 
+#[path = "live_harness/calendar_lifecycle.rs"]
+mod calendar_lifecycle;
 #[path = "live_harness/checks.rs"]
 mod checks;
 #[path = "live_harness/support.rs"]
 mod support;
 
+use calendar_lifecycle::LiveAccount;
 use checks::check_account;
 use support::{Report, confirm};
 
@@ -30,19 +33,39 @@ async fn main() -> anyhow::Result<()> {
     let config = load_config(&paths.config)?;
     let runtime = Arc::new(Runtime::production(config.clone(), &paths, &profiles)?);
     let mut reports = Vec::new();
-    for (account_id, account) in config.accounts.into_iter().filter(|(_, account)| account.enabled)
-    {
-        reports.push(
-            check_account(&runtime, &account_id, &account.email, arguments.self_write).await?,
-        );
+    let accounts = config
+        .accounts
+        .into_iter()
+        .filter(|(_, account)| account.enabled)
+        .map(|(account_id, account)| LiveAccount {
+            account_id,
+            email: account.email,
+            write_enabled: account.write_enabled,
+        })
+        .collect::<Vec<_>>();
+    for account in &accounts {
+        let mut report =
+            check_account(&runtime, &account.account_id, &account.email, arguments.self_write)
+                .await?;
+        if arguments.self_write {
+            calendar_lifecycle::check_personal_events(&runtime, &account.account_id).await?;
+            report.calendar_writes_checked = true;
+        }
+        reports.push(report);
     }
     anyhow::ensure!(!reports.is_empty(), "no enabled accounts are configured");
+    let meeting_directions = if arguments.self_write {
+        calendar_lifecycle::check_meeting_directions(&runtime, &accounts).await?
+    } else {
+        0
+    };
     serde_json::to_writer_pretty(
         io::stdout(),
         &Report {
             version: env!("CARGO_PKG_VERSION"),
             accounts: reports,
             self_write: arguments.self_write,
+            meeting_directions,
         },
     )?;
     writeln!(io::stdout())?;

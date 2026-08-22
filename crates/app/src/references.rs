@@ -124,6 +124,12 @@ impl References {
         state.events.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
     }
 
+    pub(super) fn invalidate_event(&self, id: &str) -> Result<()> {
+        let mut state = self.lock()?;
+        state.events.remove(id);
+        Ok(())
+    }
+
     pub(super) fn insert_attachment(&self, value: AttachmentReference) -> Result<String> {
         let id = format!("attachment_{}", self.ids.next());
         let now = self.clock.now();

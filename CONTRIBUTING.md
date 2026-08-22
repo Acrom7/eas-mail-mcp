@@ -48,7 +48,7 @@ cargo xtask check
 Nextest runs without retries. Golden fixtures are updated only through
 `cargo xtask goldens accept` after reviewing canonical XML and WBXML changes.
 
-Before staging an npm beta, also run the packaging and extended gates:
+Before staging an npm release, also run the packaging and extended gates:
 
 ```bash
 cargo xtask npm pack
@@ -60,6 +60,9 @@ cargo xtask npm install-candidate
 The eight-hour read-only soak is required before promoting a stable release.
 The exact npm candidate must be installed and accepted before staged packages
 are approved. Follow [the npm release process](docs/releasing.md).
+
+The one-time `0.2.0` soak and pilot exceptions are documented in its public,
+provider-neutral release acceptance record. They do not change future gates.
 
 ## Security rules
 

@@ -71,6 +71,8 @@ pub fn parse_search(data: &[u8]) -> Result<Vec<SearchMail>> {
 pub fn parse_calendar_search(data: &[u8]) -> Result<SearchCalendarPage> {
     let (items, total) = parse_search_results(data, |properties| SearchCalendar {
         long_id: String::new(),
+        collection_id: None,
+        server_id: None,
         fields: parse_calendar_fields(properties),
     })?;
     Ok(SearchCalendarPage { items, total })
@@ -95,11 +97,15 @@ where
     let mut output = Vec::new();
     for result in root.descendants("Search", "Result") {
         let long_id = direct_text(result, "Search", "LongId").unwrap_or_default();
+        let collection_id =
+            direct_text(result, "AirSync", "CollectionId").filter(|value| !value.is_empty());
+        let server_id =
+            direct_text(result, "AirSync", "ServerId").filter(|value| !value.is_empty());
         if let Some(properties) = result.child("Search", "Properties")
             && !long_id.is_empty()
         {
             let mut item = parse(properties);
-            item.set_long_id(long_id);
+            item.set_source(long_id, collection_id, server_id);
             output.push(item);
         }
     }
@@ -107,18 +113,35 @@ where
 }
 
 trait SearchResult {
-    fn set_long_id(&mut self, value: String);
+    fn set_source(
+        &mut self,
+        long_id: String,
+        collection_id: Option<String>,
+        server_id: Option<String>,
+    );
 }
 
 impl SearchResult for SearchMail {
-    fn set_long_id(&mut self, value: String) {
-        self.long_id = value;
+    fn set_source(
+        &mut self,
+        long_id: String,
+        _collection_id: Option<String>,
+        _server_id: Option<String>,
+    ) {
+        self.long_id = long_id;
     }
 }
 
 impl SearchResult for SearchCalendar {
-    fn set_long_id(&mut self, value: String) {
-        self.long_id = value;
+    fn set_source(
+        &mut self,
+        long_id: String,
+        collection_id: Option<String>,
+        server_id: Option<String>,
+    ) {
+        self.long_id = long_id;
+        self.collection_id = collection_id;
+        self.server_id = server_id;
     }
 }
 
@@ -165,16 +188,25 @@ pub fn build_item_fetch(
 /// Parses a full ItemOperations mail result.
 pub fn parse_item_fetch(data: &[u8]) -> Result<ItemResult> {
     parse_item_properties(data)
-        .map(|properties| ItemResult { fields: parse_mail_fields(&properties) })
+        .map(|result| ItemResult { fields: parse_mail_fields(&result.properties) })
 }
 
 /// Parses a full ItemOperations calendar result.
 pub fn parse_calendar_item_fetch(data: &[u8]) -> Result<CalendarItemResult> {
-    parse_item_properties(data)
-        .map(|properties| CalendarItemResult { fields: parse_calendar_fields(&properties) })
+    parse_item_properties(data).map(|result| CalendarItemResult {
+        collection_id: result.collection_id,
+        server_id: result.server_id,
+        fields: parse_calendar_fields(&result.properties),
+    })
 }
 
-fn parse_item_properties(data: &[u8]) -> Result<crate::wbxml::Element> {
+struct ItemProperties {
+    properties: crate::wbxml::Element,
+    collection_id: Option<String>,
+    server_id: Option<String>,
+}
+
+fn parse_item_properties(data: &[u8]) -> Result<ItemProperties> {
     let root = decode(data)?
         .ok_or_else(|| EasError::Protocol("Exchange returned an empty ItemOperations".into()))?;
     let fetch = root
@@ -184,10 +216,16 @@ fn parse_item_properties(data: &[u8]) -> Result<crate::wbxml::Element> {
     if status != 1 {
         return Err(EasError::Protocol(format!("ItemOperations status is {status}")));
     }
-    fetch
+    let properties = fetch
         .child("ItemOperations", "Properties")
         .cloned()
-        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Properties".into()))
+        .ok_or_else(|| EasError::Protocol("ItemOperations response has no Properties".into()))?;
+    Ok(ItemProperties {
+        properties,
+        collection_id: direct_text(fetch, "AirSync", "CollectionId")
+            .filter(|value| !value.is_empty()),
+        server_id: direct_text(fetch, "AirSync", "ServerId").filter(|value| !value.is_empty()),
+    })
 }
 
 /// Builds an on-demand attachment fetch.

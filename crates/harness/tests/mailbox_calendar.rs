@@ -86,7 +86,7 @@ async fn calendar_search_and_get_use_no_folder_or_calendar_sync() -> anyhow::Res
     let event =
         search.events.first().ok_or_else(|| anyhow::anyhow!("calendar search fixture is empty"))?;
     assert_eq!(event.fields.subject, Patch::Value("Planning".into()));
-    let fetched = mailbox.fetch_calendar(&event.long_id, 12_000).await?;
+    let fetched = mailbox.fetch_calendar(event, 12_000).await?;
     assert_eq!(fetched.fields.body, Patch::Value("Agenda".into()));
     transport.verify_complete()?;
     Ok(())

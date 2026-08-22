@@ -37,10 +37,23 @@ impl OperationJournal for MemoryJournal {
         Ok(JournalBegin { record: record.clone(), inserted: true })
     }
 
-    fn finish(&self, operation_id: &str, status: OperationStatus) -> Result<()> {
+    fn checkpoint(&self, operation_id: &str, completed_steps: u32) -> Result<()> {
+        let mut records = self.records.lock().map_err(|_| storage_error())?;
+        let record = records.get_mut(operation_id).ok_or_else(storage_error)?;
+        record.completed_steps = completed_steps;
+        Ok(())
+    }
+
+    fn finish(
+        &self,
+        operation_id: &str,
+        status: OperationStatus,
+        completed_steps: u32,
+    ) -> Result<()> {
         let mut records = self.records.lock().map_err(|_| storage_error())?;
         let record = records.get_mut(operation_id).ok_or_else(storage_error)?;
         record.status = status;
+        record.completed_steps = completed_steps;
         Ok(())
     }
 

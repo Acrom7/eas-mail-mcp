@@ -16,10 +16,11 @@ pub use client::{EasClient, NegotiatedPolicy, ServerCapabilities};
 pub use eas_mail_profile::IdentityMode;
 pub use error::{EasError, Result};
 pub use model::{
-    Attachment, CalendarFields, CalendarItemResult, CandidateAvailability, ChangeData, ChangeKind,
-    CollectionKind, Folder, FolderPage, FreeBusyStatus, ItemResult, MailFields, MutationResult,
-    Patch, RecipientAvailability, RecipientResolution, ResolvedRecipient, SearchCalendar,
-    SearchCalendarPage, SearchMail, SyncChange, SyncPage,
+    Attachment, CalendarApplication, CalendarAttendee, CalendarFields, CalendarItemResult,
+    CandidateAvailability, ChangeData, ChangeKind, CollectionKind, Folder, FolderPage,
+    FreeBusyStatus, ItemResult, MailFields, MeetingResponseChoice, MeetingResponseResult,
+    MutationResult, Patch, RecipientAvailability, RecipientResolution, ResolvedRecipient,
+    SearchCalendar, SearchCalendarPage, SearchMail, SyncChange, SyncPage,
 };
 pub use profile::{Profile, ProfileKey, ProfileRegistry};
 pub use query::{Command, build_binary_query};

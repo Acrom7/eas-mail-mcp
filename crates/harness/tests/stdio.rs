@@ -10,7 +10,7 @@ use rmcp::service::{Peer, RoleClient};
 use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 17] = [
+const TOOLS: [&str; 22] = [
     "accounts_list",
     "folders_list",
     "sync_status",
@@ -28,6 +28,11 @@ const TOOLS: [&str; 17] = [
     "mail_send",
     "mail_reply",
     "mail_forward",
+    "calendar_create",
+    "calendar_update",
+    "calendar_delete",
+    "calendar_cancel",
+    "calendar_respond",
 ];
 
 #[tokio::test]
@@ -172,6 +177,17 @@ fn verify_tool_schemas(tools: &[rmcp::model::Tool]) -> Result<()> {
                 == Some(480),
         "calendar slot schema is missing duration bounds"
     );
+    let create_schema = tools
+        .iter()
+        .find(|tool| tool.name == "calendar_create")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("calendar_create schema is missing")?;
+    anyhow::ensure!(
+        create_schema.pointer("/properties/body/maxLength").and_then(Value::as_u64) == Some(50_000)
+            && create_schema.pointer("/properties/attendees/maxItems").and_then(Value::as_u64)
+                == Some(100),
+        "calendar_create schema is missing write bounds"
+    );
     Ok(())
 }
 
@@ -200,6 +216,92 @@ async fn exercise_calendar(peer: &Peer<RoleClient>) -> Result<()> {
     let page = call(peer, "calendar_search", Some(json!({ "query": "planning" }))).await?;
     let event_ref = text_at(&page, "/data/items/0/event_ref")?;
     call(peer, "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
+    exercise_calendar_writes(peer).await?;
+    Ok(())
+}
+
+async fn exercise_calendar_writes(peer: &Peer<RoleClient>) -> Result<()> {
+    let meeting = call(
+        peer,
+        "calendar_create",
+        Some(json!({
+            "account_id": "example",
+            "subject": "Harness meeting",
+            "schedule": {
+                "kind": "timed",
+                "start": "2026-08-24T09:00:00Z",
+                "end": "2026-08-24T10:00:00Z",
+                "time_zone": "UTC"
+            },
+            "attendees": [{
+                "email": "guest@example.invalid",
+                "role": "required"
+            }],
+            "idempotency_key": "00000000-0000-4000-8000-000000000101"
+        })),
+    )
+    .await?;
+    let meeting_ref = text_at(&meeting, "/data/event_ref")?;
+    let updated = call(
+        peer,
+        "calendar_update",
+        Some(json!({
+            "event_ref": meeting_ref,
+            "subject": "Updated harness meeting",
+            "idempotency_key": "00000000-0000-4000-8000-000000000102"
+        })),
+    )
+    .await?;
+    let updated_ref = text_at(&updated, "/data/event_ref")?;
+    call(
+        peer,
+        "calendar_cancel",
+        Some(json!({
+            "event_ref": updated_ref,
+            "comment": "Harness cleanup",
+            "idempotency_key": "00000000-0000-4000-8000-000000000103"
+        })),
+    )
+    .await?;
+    let personal = call(
+        peer,
+        "calendar_create",
+        Some(json!({
+            "account_id": "example",
+            "subject": "Harness personal event",
+            "schedule": {
+                "kind": "all_day",
+                "start_date": "2026-08-25",
+                "end_date": "2026-08-26",
+                "time_zone": "UTC"
+            },
+            "idempotency_key": "00000000-0000-4000-8000-000000000104"
+        })),
+    )
+    .await?;
+    let personal_ref = text_at(&personal, "/data/event_ref")?;
+    call(
+        peer,
+        "calendar_delete",
+        Some(json!({
+            "event_ref": personal_ref,
+            "idempotency_key": "00000000-0000-4000-8000-000000000105"
+        })),
+    )
+    .await?;
+    let received = call(peer, "calendar_search", Some(json!({ "query": "received" }))).await?;
+    let received_ref = text_at(&received, "/data/items/0/event_ref")?;
+    call(
+        peer,
+        "calendar_respond",
+        Some(json!({
+            "event_ref": received_ref,
+            "response": "accept",
+            "comment": "Accepted by harness",
+            "idempotency_key": "00000000-0000-4000-8000-000000000106"
+        })),
+    )
+    .await?;
     Ok(())
 }
 
@@ -219,7 +321,7 @@ fn contains_unsigned_format(value: &Value) -> bool {
 
 #[tokio::test]
 async fn black_box_independent_stdio_processes_start_cleanly() -> Result<()> {
-    for _ in 0..2 {
+    for _ in 0..24 {
         let transport = TokioChildProcess::new(tokio::process::Command::new(env!(
             "CARGO_BIN_EXE_harness-server"
         )))?;

@@ -31,7 +31,59 @@ fn idempotency_key_rejects_changed_payload_and_missing_finish() -> anyhow::Resul
     anyhow::ensure!(
         conflict.err().is_some_and(|error| error.envelope.code == ErrorCode::IdempotencyConflict)
     );
-    anyhow::ensure!(journal.finish("missing-operation", OperationStatus::Succeeded).is_err());
+    anyhow::ensure!(journal.finish("missing-operation", OperationStatus::Succeeded, 0).is_err());
+    Ok(())
+}
+
+#[test]
+fn partial_checkpoints_survive_reopen_without_calendar_content() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("operations.sqlite");
+    let record = record("work", "fingerprint-a");
+    {
+        let journal = SqliteJournal::open(&path)?;
+        let _ = journal.begin(&record)?;
+        journal.checkpoint(&record.operation_id, 5)?;
+        journal.finish(&record.operation_id, OperationStatus::Partial, 5)?;
+    }
+    let reopened = SqliteJournal::open(&path)?;
+    let stored = reopened
+        .lookup(&record.operation_id)?
+        .ok_or_else(|| anyhow::anyhow!("partial journal row is missing"))?;
+    anyhow::ensure!(stored.status == OperationStatus::Partial);
+    anyhow::ensure!(stored.completed_steps == 5);
+    Ok(())
+}
+
+#[test]
+fn legacy_journal_migrates_completed_steps_atomically() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("operations.sqlite");
+    {
+        let connection = rusqlite::Connection::open(&path)?;
+        connection.execute_batch(
+            "CREATE TABLE operations (
+               operation_id TEXT PRIMARY KEY,
+               account_id TEXT NOT NULL,
+               kind TEXT NOT NULL,
+               payload_hmac TEXT NOT NULL,
+               client_id TEXT NOT NULL,
+               status TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             INSERT INTO operations VALUES (
+               '11111111-2222-4333-8444-555555555555', 'work', 'mail_send',
+               'fingerprint-a', 'client', 'pending', unixepoch(), unixepoch()
+             );",
+        )?;
+    }
+    let journal = SqliteJournal::open(&path)?;
+    let stored = journal
+        .lookup("11111111-2222-4333-8444-555555555555")?
+        .ok_or_else(|| anyhow::anyhow!("migrated journal row is missing"))?;
+    anyhow::ensure!(stored.status == OperationStatus::Unknown);
+    anyhow::ensure!(stored.completed_steps == 0);
     Ok(())
 }
 
@@ -45,8 +97,8 @@ fn account_purge_and_retention_remove_only_metadata() -> anyhow::Result<()> {
     other.operation_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".into();
     let _ = journal.begin(&work)?;
     let _ = journal.begin(&other)?;
-    journal.finish(&work.operation_id, OperationStatus::Succeeded)?;
-    journal.finish(&other.operation_id, OperationStatus::Succeeded)?;
+    journal.finish(&work.operation_id, OperationStatus::Succeeded, 0)?;
+    journal.finish(&other.operation_id, OperationStatus::Succeeded, 0)?;
     anyhow::ensure!(journal.purge_account("work")? == 1);
 
     let connection = rusqlite::Connection::open(&path)?;
@@ -74,5 +126,6 @@ fn record(account_id: &str, fingerprint: &str) -> JournalRecord {
         payload_hmac: fingerprint.into(),
         client_id: "11111111-2222-4333-8444-555555555555".into(),
         status: OperationStatus::Pending,
+        completed_steps: 0,
     }
 }

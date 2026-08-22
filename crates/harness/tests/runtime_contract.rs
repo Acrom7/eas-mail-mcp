@@ -114,13 +114,33 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
         .and_then(|data| data.items.into_iter().next())
         .map(|event| event.event_ref)
         .ok_or_else(|| anyhow::anyhow!("calendar event is missing"))?;
-    assert!(
-        runtime
-            .calendar_get(CalendarGetInput { event_ref, body_limit: None })
-            .await
-            .error
-            .is_none()
-    );
+    let event = runtime
+        .calendar_get(CalendarGetInput { event_ref, body_limit: None })
+        .await
+        .data
+        .ok_or_else(|| anyhow::anyhow!("calendar_get returned no data"))?;
+    assert_eq!(event.uid, "event-uid@example.invalid");
+    assert!(event.can_update && event.can_cancel);
+    assert!(!event.can_delete && !event.can_respond);
+
+    let received_ref = runtime
+        .calendar_search(CalendarSearchInput {
+            query: "received".into(),
+            account_ids: None,
+            limit: Some(1),
+        })
+        .await
+        .data
+        .and_then(|data| data.items.into_iter().next())
+        .map(|event| event.event_ref)
+        .ok_or_else(|| anyhow::anyhow!("received meeting is missing"))?;
+    let received = runtime
+        .calendar_get(CalendarGetInput { event_ref: received_ref, body_limit: None })
+        .await
+        .data
+        .ok_or_else(|| anyhow::anyhow!("received calendar_get returned no data"))?;
+    assert!(received.can_respond);
+    assert!(!received.can_update && !received.can_delete && !received.can_cancel);
     assert_eq!(
         runtime
             .calendar_search(CalendarSearchInput {

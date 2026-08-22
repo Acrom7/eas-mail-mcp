@@ -36,6 +36,9 @@ operator denylist. Source releases contain no binaries or ignored files.
 - Remote wipe purges account credentials, process references, attachments, and
   journal rows.
 - Ambiguous mutations are not retried and return `OUTCOME_UNKNOWN`.
+- Partial Calendar lifecycles persist only a content-free completed-step mask
+  and are not retried with a new UUID automatically.
+- Independent stdio processes serialize mail and Calendar writes per account.
 - Write tools require account opt-in and an idempotency UUID. Client identity and
   version are diagnostic only.
 - An explicit write-tool call executes immediately after validation. The server

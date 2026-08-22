@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::{CalendarAttendeeStatus, CalendarAttendeeView, CalendarBusyStatus, CalendarEventType};
+
 /// Weekday used by explicit scheduling windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -330,12 +332,30 @@ pub struct CalendarEvent {
     pub location: String,
     /// Organizer.
     pub organizer: String,
-    /// Attendee addresses.
-    pub attendees: Vec<String>,
+    /// Organizer SMTP address.
+    pub organizer_email: String,
+    /// Stable iCalendar UID.
+    pub uid: String,
+    /// Personal, organizer, or attendee event classification.
+    pub event_type: CalendarEventType,
+    /// Current free/busy state.
+    pub busy_status: CalendarBusyStatus,
+    /// Current user's meeting response, when known.
+    pub response_status: CalendarAttendeeStatus,
+    /// Structured attendees.
+    pub attendees: Vec<CalendarAttendeeView>,
     /// Recurrence fields from Exchange.
     pub recurrence: BTreeMap<String, String>,
     /// Recurrence exception fields.
     pub exceptions: Vec<BTreeMap<String, String>>,
+    /// Whether `calendar_update` is allowed for this reference.
+    pub can_update: bool,
+    /// Whether `calendar_delete` is allowed for this reference.
+    pub can_delete: bool,
+    /// Whether `calendar_cancel` is allowed for this reference.
+    pub can_cancel: bool,
+    /// Whether `calendar_respond` is allowed for this reference.
+    pub can_respond: bool,
     /// External content marker.
     pub untrusted_external_content: bool,
 }

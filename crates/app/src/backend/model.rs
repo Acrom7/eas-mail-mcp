@@ -1,4 +1,4 @@
-use eas_mail_protocol::{CalendarFields, MailFields, ProfileKey};
+use eas_mail_protocol::{CalendarApplication, CalendarFields, MailFields, ProfileKey};
 
 /// Safe account metadata exposed by a backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +51,10 @@ pub struct BackendEvent {
     pub account_id: String,
     /// Search LongId used for an on-demand ItemOperations fetch.
     pub long_id: String,
+    /// Calendar collection identifier when resolved.
+    pub collection_id: Option<String>,
+    /// Calendar server identifier when resolved.
+    pub server_id: Option<String>,
     /// Parsed event fields.
     pub fields: CalendarFields,
 }
@@ -71,6 +75,17 @@ pub struct BackendCapabilities {
     pub calendar_availability: bool,
     /// Whether all mail compose commands are advertised.
     pub mail_writes: bool,
+    /// Whether Calendar Add, Change, and Delete are available.
+    pub personal_calendar_writes: bool,
+    /// Whether meeting notifications and received responses are available.
+    pub meeting_lifecycle: bool,
+}
+
+/// Prepared non-recurring event sent to a backend Calendar mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendCalendarMutation {
+    /// Complete EAS Calendar ApplicationData.
+    pub application: CalendarApplication,
 }
 
 /// One explicit synchronization result.

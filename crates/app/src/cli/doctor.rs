@@ -54,6 +54,8 @@ pub(super) async fn run(
                                     "unsupported"
                                 },
                                 "mail_writes": capabilities.mail_writes,
+                                "personal_calendar_writes": capabilities.personal_calendar_writes,
+                                "meeting_lifecycle": capabilities.meeting_lifecycle,
                             },
                         }),
                         Err(error) => redacted_account_failure(&paths, account_id, error),
