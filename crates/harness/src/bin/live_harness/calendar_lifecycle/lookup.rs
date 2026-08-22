@@ -8,9 +8,10 @@ use eas_mail_mcp::{
 
 use super::super::checks::required;
 
-const DELIVERY_ATTEMPTS: usize = 180;
+const DELIVERY_ATTEMPTS: usize = 360;
 const DELIVERY_DELAY: Duration = Duration::from_secs(5);
 const PROGRESS_INTERVAL: usize = 12;
+const DELIVERY_WINDOW_MINUTES: usize = DELIVERY_ATTEMPTS / PROGRESS_INTERVAL;
 const MEETING_SEARCH_QUERY: &str = "EAS Mail MCP meeting";
 const PERSONAL_SEARCH_QUERY: &str = "EAS Mail MCP personal";
 
@@ -64,7 +65,9 @@ pub async fn wait_for_event(
         report_wait("Calendar item", attempt)?;
         tokio::time::sleep(DELIVERY_DELAY).await;
     }
-    anyhow::bail!("Calendar item did not reach the expected account within fifteen minutes")
+    anyhow::bail!(
+        "Calendar item did not reach the expected account within {DELIVERY_WINDOW_MINUTES} minutes"
+    )
 }
 
 pub async fn find_event(
@@ -118,7 +121,9 @@ pub async fn wait_for_meeting_mail(
                 .await;
             if let Some(detail) = detail.data {
                 current.record(&detail.summary);
-                if detail.summary.calendar_message == Some(expected) && detail.summary.can_respond {
+                if detail.summary.calendar_message == Some(expected)
+                    && (!requires_action(expected) || detail.summary.can_respond)
+                {
                     return Ok(detail.summary);
                 }
             } else {
@@ -130,8 +135,13 @@ pub async fn wait_for_meeting_mail(
         tokio::time::sleep(DELIVERY_DELAY).await;
     }
     anyhow::bail!(
-        "Actionable Calendar mail did not reach the expected mailbox within fifteen minutes: {observed:?}"
+        "Expected Calendar mail did not reach the mailbox within \
+         {DELIVERY_WINDOW_MINUTES} minutes: {observed:?}"
     )
+}
+
+const fn requires_action(kind: CalendarMailKind) -> bool {
+    matches!(kind, CalendarMailKind::Request | CalendarMailKind::Update)
 }
 
 fn report_wait(stage: &str, attempt: usize) -> anyhow::Result<()> {

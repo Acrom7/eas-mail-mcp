@@ -175,9 +175,9 @@ async fn run_meeting(
     let (uid, received) =
         create_and_receive(runtime, organizer, attendee, subject, token, direction, organizer_ref)
             .await?;
-    exercise_initial_responses(runtime, attendee, token, &uid, received).await?;
+    exercise_initial_responses(runtime, organizer, attendee, token, &uid, received).await?;
     update_and_decline(runtime, attendee, token, direction, organizer_ref).await?;
-    cancel_meeting(runtime, organizer_ref).await
+    cancel_meeting(runtime, attendee, token, organizer_ref).await
 }
 
 async fn create_and_receive(
@@ -227,6 +227,7 @@ async fn create_and_receive(
 
 async fn exercise_initial_responses(
     runtime: &Runtime,
+    organizer: &LiveAccount,
     attendee: &LiveAccount,
     token: &str,
     uid: &str,
@@ -237,6 +238,13 @@ async fn exercise_initial_responses(
         &received.mail_ref,
         CalendarResponseChoice::Accept,
         "Accepted by the release harness",
+    )
+    .await?;
+    let _ = lookup::wait_for_meeting_mail(
+        runtime,
+        &organizer.account_id,
+        token,
+        CalendarMailKind::Response,
     )
     .await?;
     let accepted = response_event(runtime, attendee, token, uid, accepted_ref).await?;
@@ -296,6 +304,8 @@ async fn update_and_decline(
 
 async fn cancel_meeting(
     runtime: &Runtime,
+    attendee: &LiveAccount,
+    token: &str,
     organizer_ref: &mut Option<String>,
 ) -> anyhow::Result<()> {
     succeeded(
@@ -309,6 +319,13 @@ async fn cancel_meeting(
         "calendar_cancel meeting",
     )?;
     *organizer_ref = None;
+    let _ = lookup::wait_for_meeting_mail(
+        runtime,
+        &attendee.account_id,
+        token,
+        CalendarMailKind::Cancellation,
+    )
+    .await?;
     Ok(())
 }
 

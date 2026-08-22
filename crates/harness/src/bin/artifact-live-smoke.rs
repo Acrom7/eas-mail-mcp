@@ -22,6 +22,8 @@ struct Arguments {
     binary: PathBuf,
     #[arg(long)]
     self_write: bool,
+    #[arg(long)]
+    meeting_diagnostics: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -30,6 +32,20 @@ struct Report {
     accounts: usize,
     read_smoke: bool,
     personal_write_accounts: usize,
+    meeting_diagnostics: Option<MeetingDiagnostics>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeetingDiagnostics {
+    recent_matches: usize,
+    distinct_accounts: usize,
+    classified: usize,
+    actionable: usize,
+    request: usize,
+    update: usize,
+    cancellation: usize,
+    response: usize,
+    other: usize,
 }
 
 #[tokio::main]
@@ -65,6 +81,8 @@ async fn main() -> Result<()> {
     call(&peer, "sync_status", Some(json!({}))).await?;
     call(&peer, "mail_list", Some(json!({ "limit": 1 }))).await?;
     call(&peer, "calendar_search", Some(json!({ "query": "EAS Mail MCP", "limit": 1 }))).await?;
+    let meeting_diagnostics =
+        if arguments.meeting_diagnostics { Some(meeting_diagnostics(&peer).await?) } else { None };
 
     let mut writes = 0;
     if arguments.self_write {
@@ -85,10 +103,58 @@ async fn main() -> Result<()> {
             accounts: accounts.len(),
             read_smoke: true,
             personal_write_accounts: writes,
+            meeting_diagnostics,
         },
     )?;
     writeln!(io::stdout())?;
     Ok(())
+}
+
+async fn meeting_diagnostics(peer: &Peer<RoleClient>) -> Result<MeetingDiagnostics> {
+    let response =
+        call(peer, "mail_search", Some(json!({ "query": "EAS Mail MCP meeting", "limit": 100 })))
+            .await?;
+    let items = response
+        .pointer("/data/items")
+        .and_then(Value::as_array)
+        .context("mail_search returned no items")?;
+    let cutoff = Utc::now() - chrono::Duration::minutes(30);
+    let recent = items.iter().filter(|item| {
+        item.get("received_at")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<chrono::DateTime<Utc>>().ok())
+            .is_some_and(|value| value >= cutoff)
+    });
+    let recent = recent.collect::<Vec<_>>();
+    let distinct_accounts = recent
+        .iter()
+        .filter_map(|item| item.get("account_id").and_then(Value::as_str))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    Ok(MeetingDiagnostics {
+        recent_matches: recent.len(),
+        distinct_accounts,
+        classified: recent
+            .iter()
+            .filter(|item| item.get("calendar_message").is_some_and(|value| !value.is_null()))
+            .count(),
+        actionable: recent
+            .iter()
+            .filter(|item| item.get("can_respond").and_then(Value::as_bool) == Some(true))
+            .count(),
+        request: calendar_kind(&recent, "request"),
+        update: calendar_kind(&recent, "update"),
+        cancellation: calendar_kind(&recent, "cancellation"),
+        response: calendar_kind(&recent, "response"),
+        other: calendar_kind(&recent, "other"),
+    })
+}
+
+fn calendar_kind(items: &[&Value], expected: &str) -> usize {
+    items
+        .iter()
+        .filter(|item| item.get("calendar_message").and_then(Value::as_str) == Some(expected))
+        .count()
 }
 
 async fn personal_write(peer: &Peer<RoleClient>, account_id: &str) -> Result<()> {
