@@ -25,6 +25,12 @@ required-features = ["live"]
 test = false
 
 [[bin]]
+name = "artifact-live-smoke"
+path = "src/bin/artifact-live-smoke.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
 name = "eas-live-probe"
 path = "src/bin/eas-live-probe.rs"
 required-features = ["live"]
