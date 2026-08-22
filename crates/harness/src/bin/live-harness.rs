@@ -11,7 +11,7 @@ mod checks;
 #[path = "live_harness/support.rs"]
 mod support;
 
-use calendar_lifecycle::LiveAccount;
+use calendar_lifecycle::{LiveAccount, MeetingCoverage};
 use checks::check_account;
 use support::{Report, confirm};
 
@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .filter(|(_, account)| account.enabled)
         .map(|(account_id, account)| LiveAccount {
             account_id,
+            profile: account.profile.to_string(),
             email: account.email,
             write_enabled: account.write_enabled,
         })
@@ -54,18 +55,25 @@ async fn main() -> anyhow::Result<()> {
         reports.push(report);
     }
     anyhow::ensure!(!reports.is_empty(), "no enabled accounts are configured");
-    let meeting_directions = if arguments.self_write {
+    let meeting_coverage = if arguments.self_write {
         calendar_lifecycle::check_meeting_directions(&runtime, &accounts).await?
     } else {
-        0
+        MeetingCoverage::default()
     };
+    if arguments.self_write && meeting_coverage.profiles == 0 {
+        writeln!(
+            io::stderr(),
+            "Calendar meeting lifecycle was not run: no endpoint profile has two writable accounts."
+        )?;
+    }
     serde_json::to_writer_pretty(
         io::stdout(),
         &Report {
             version: env!("CARGO_PKG_VERSION"),
             accounts: reports,
             self_write: arguments.self_write,
-            meeting_directions,
+            meeting_profiles: meeting_coverage.profiles,
+            meeting_directions: meeting_coverage.directions,
         },
     )?;
     writeln!(io::stdout())?;

@@ -3,6 +3,8 @@ mod helpers;
 #[path = "calendar_lifecycle/lookup.rs"]
 mod lookup;
 
+use std::collections::BTreeMap;
+
 use eas_mail_mcp::{
     CalendarAttendeeRole, CalendarBusyStatus, CalendarCancelInput, CalendarCreateInput,
     CalendarDeleteInput, CalendarEvent, CalendarEventType, CalendarGetInput, CalendarMailKind,
@@ -18,8 +20,15 @@ use self::lookup::ExpectedEvent;
 #[derive(Debug)]
 pub struct LiveAccount {
     pub account_id: String,
+    pub profile: String,
     pub email: String,
     pub write_enabled: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct MeetingCoverage {
+    pub profiles: usize,
+    pub directions: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,19 +45,25 @@ pub async fn check_personal_events(runtime: &Runtime, account_id: &str) -> anyho
 pub async fn check_meeting_directions(
     runtime: &Runtime,
     accounts: &[LiveAccount],
-) -> anyhow::Result<usize> {
-    let writable = accounts.iter().filter(|account| account.write_enabled).collect::<Vec<_>>();
-    anyhow::ensure!(
-        writable.len() == 2,
-        "Calendar meeting lifecycle requires exactly two enabled writable accounts"
-    );
-    let mut pairs = writable.into_iter();
-    let first = pairs.next().ok_or_else(|| anyhow::anyhow!("first writable account is missing"))?;
-    let second =
-        pairs.next().ok_or_else(|| anyhow::anyhow!("second writable account is missing"))?;
-    check_meeting(runtime, first, second, 0).await?;
-    check_meeting(runtime, second, first, 1).await?;
-    Ok(2)
+) -> anyhow::Result<MeetingCoverage> {
+    let mut by_profile = BTreeMap::<&str, Vec<&LiveAccount>>::new();
+    for account in accounts.iter().filter(|account| account.write_enabled) {
+        by_profile.entry(&account.profile).or_default().push(account);
+    }
+    let mut coverage = MeetingCoverage::default();
+    for profile_accounts in by_profile.values().filter(|accounts| accounts.len() >= 2) {
+        let first = profile_accounts
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("first same-profile account is missing"))?;
+        let second = profile_accounts
+            .get(1)
+            .ok_or_else(|| anyhow::anyhow!("second same-profile account is missing"))?;
+        check_meeting(runtime, first, second, 0).await?;
+        check_meeting(runtime, second, first, 1).await?;
+        coverage.profiles += 1;
+        coverage.directions += 2;
+    }
+    Ok(coverage)
 }
 
 async fn check_personal_event(

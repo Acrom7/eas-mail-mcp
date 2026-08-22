@@ -65,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
             version: env!("CARGO_PKG_VERSION"),
             accounts: vec![report],
             self_write: arguments.self_write,
+            meeting_profiles: 0,
             meeting_directions: 0,
         },
     )?;

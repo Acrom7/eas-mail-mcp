@@ -7,6 +7,7 @@ pub struct Report {
     pub version: &'static str,
     pub accounts: Vec<AccountReport>,
     pub self_write: bool,
+    pub meeting_profiles: usize,
     pub meeting_directions: usize,
 }
 
@@ -27,7 +28,7 @@ pub struct AccountReport {
 pub fn confirm() -> anyhow::Result<()> {
     writeln!(
         io::stderr(),
-        "This will exercise mail writes and temporary Calendar events and meetings only between your configured accounts."
+        "This will exercise mail writes, temporary Calendar events, and meetings only between accounts that share one endpoint profile."
     )?;
     write!(io::stderr(), "Type SELF-WRITE to continue: ")?;
     io::stderr().flush()?;
