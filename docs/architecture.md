@@ -80,9 +80,13 @@ working hours. Timezone, DST validation, status merging, and common-window
 intersection are pure Rust transformations. No availability cache is retained.
 Subjects and bodies from other people's meetings are never requested.
 
-Own-calendar lookup uses `Search` with `Class=Calendar`. Compact results receive
-15-minute process-local references; `calendar_get` fetches one LongId through
-ItemOperations. There is no full-calendar synchronization or calendar snapshot.
+Text own-calendar lookup uses `Search` with `Class=Calendar`. A date-range lookup
+instead performs a fresh, bounded, metadata-only Calendar Sync because EAS 14.1
+Search has no event-start predicate. The runtime expands Gregorian recurrence
+patterns and exceptions with the event's EAS timezone, filters a maximum 31-day
+range, sorts it, and emits at most 100 compact summaries. No Calendar body or
+snapshot is retained. Compact results receive 15-minute process-local references;
+`calendar_get` fetches one item through ItemOperations.
 
 Calendar lifecycle mutations resolve one referenced item through ItemOperations,
 then use Calendar `Sync/Add`, `Change`, or `Delete`. A collection SyncKey is

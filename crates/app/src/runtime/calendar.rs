@@ -3,6 +3,7 @@ use std::sync::Arc;
 use futures::future::join_all;
 
 use super::Runtime;
+use super::calendar_agenda;
 use super::convert::{calendar_event, calendar_event_summary};
 use super::schedule::{self, AvailabilityPage, PreparedAvailability, SchedulePlan};
 use crate::backend::{AccountBackend, BackendEvent};
@@ -30,7 +31,7 @@ impl Runtime {
         Self::response(self.calendar_find_slots_result(input).await)
     }
 
-    /// Searches own-calendar events directly through EAS Search.
+    /// Searches own-calendar text or returns a compact bounded agenda.
     pub async fn calendar_search(
         &self,
         input: CalendarSearchInput,
@@ -103,16 +104,24 @@ impl Runtime {
         &self,
         input: CalendarSearchInput,
     ) -> Result<(CalendarSearchData, Vec<crate::Warning>)> {
-        let query = input.query.trim();
-        if query.is_empty() {
-            return Err(AppError::new(ErrorCode::ValidationFailed, "search query is empty"));
-        }
-        let result_limit = limit(input.limit.map(u32::from), 20, 50)?;
+        let plan = calendar_agenda::plan(&input)?;
+        let result_limit = limit(input.limit.map(u32::from), 50, 100)?;
         let backends = self.selected(input.account_ids.as_deref())?;
-        let results = join_all(backends.into_iter().map(|backend| async move {
-            let account_id = backend.account().account_id;
-            let result = backend.search_calendar(query, result_limit).await;
-            (account_id, result)
+        let results = join_all(backends.into_iter().map(|backend| {
+            let plan = plan.clone();
+            async move {
+                let account_id = backend.account().account_id;
+                let result = if plan.uses_agenda_scan() {
+                    backend.scan_calendar_metadata().await.and_then(|mut result| {
+                        result.events = plan.apply(result.events)?;
+                        result.total = result.events.len();
+                        Ok(result)
+                    })
+                } else {
+                    backend.search_calendar(plan.query().unwrap_or_default(), result_limit).await
+                };
+                (account_id, result)
+            }
         }))
         .await;
         let (groups, warnings) = self.collect_partial(results)?;

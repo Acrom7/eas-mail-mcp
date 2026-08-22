@@ -145,7 +145,7 @@ impl EasMailbox {
             })
     }
 
-    async fn calendar_folder_ids(&self) -> Result<Vec<(u16, String)>> {
+    pub(super) async fn calendar_folder_ids(&self) -> Result<Vec<(u16, String)>> {
         if self.state.lock().await.folders.is_empty() {
             self.refresh_folders().await?;
         }
@@ -251,7 +251,7 @@ impl EasMailbox {
         Ok(page.sync_key)
     }
 
-    async fn read_calendar_page(
+    pub(super) async fn read_calendar_page(
         &self,
         state: &mut SessionState,
         collection_id: &str,

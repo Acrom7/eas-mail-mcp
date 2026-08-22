@@ -88,7 +88,7 @@ state.
 
 ### Compact calendar path
 
-The calendar tools do not synchronize or cache a calendar database.
+The calendar tools do not persist or expose a calendar database.
 `calendar_availability` sends supplied names or email addresses to EAS
 `ResolveRecipients + Availability` and returns only merged 30-minute free/busy
 states. It never returns subjects or bodies from another person's meetings.
@@ -100,10 +100,19 @@ and participant intersection calculations inside the Rust process. It returns
 common windows instead of making the AI client parse a large event dump. The
 account owner is not added implicitly; include every participant explicitly.
 
-`calendar_search` performs a bounded server-side Search over the selected
-account's own Calendar items. Compact results carry a 15-minute `event_ref`;
-`calendar_get` uses ItemOperations to fetch exactly that event, including body,
-attendees, recurrence, and exceptions, only when requested.
+`calendar_search` supports two bounded modes. A non-empty `query` performs
+server-side EAS Search. Supplying `date_from`, inclusive `date_to`, and an IANA
+`time_zone` returns a compact agenda for at most 31 days; `query` is optional in
+that mode. Because EAS Search cannot filter Calendar items by event start time,
+the agenda mode performs a fresh metadata-only Calendar Sync, expands recurring
+occurrences and exceptions, filters and sorts them in Rust, and returns at most
+100 summaries. Bodies are not requested or returned. This can still transfer a
+wide metadata set from Exchange, but the AI client receives only the requested
+range. [EAS mailbox Search query syntax](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-ascmd/9b5b91d9-73d6-44ba-a91c-291eb0b419a2)
+
+Compact results carry a 15-minute `event_ref`; `calendar_get` uses
+ItemOperations to fetch exactly that event, including body, attendees,
+recurrence, and exceptions, only when requested.
 
 Calendar writes use that same bounded reference path. Personal events are
 created, updated, or deleted with Calendar Sync mutations. Meetings additionally

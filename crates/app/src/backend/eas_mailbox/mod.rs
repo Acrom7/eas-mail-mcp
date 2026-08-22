@@ -1,4 +1,5 @@
 mod calendar;
+mod calendar_agenda;
 mod calendar_write;
 mod calendar_write_model;
 mod content;

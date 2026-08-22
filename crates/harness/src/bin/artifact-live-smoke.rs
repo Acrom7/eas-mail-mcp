@@ -81,6 +81,19 @@ async fn main() -> Result<()> {
     call(&peer, "sync_status", Some(json!({}))).await?;
     call(&peer, "mail_list", Some(json!({ "limit": 1 }))).await?;
     call(&peer, "calendar_search", Some(json!({ "query": "EAS Mail MCP", "limit": 1 }))).await?;
+    let today = Utc::now().date_naive();
+    let agenda_to = today.checked_add_days(Days::new(6)).unwrap_or(today);
+    call(
+        &peer,
+        "calendar_search",
+        Some(json!({
+            "date_from": today.to_string(),
+            "date_to": agenda_to.to_string(),
+            "time_zone": "UTC",
+            "limit": 100
+        })),
+    )
+    .await?;
     let meeting_diagnostics =
         if arguments.meeting_diagnostics { Some(meeting_diagnostics(&peer).await?) } else { None };
 

@@ -178,10 +178,14 @@ impl MailMcpServer {
         Json(self.runtime.calendar_find_slots(input).await)
     }
 
-    /// Searches own-calendar event metadata directly through Exchange.
+    /// Searches own-calendar text or returns a compact date-range agenda.
     #[tool(
         name = "calendar_search",
-        annotations(title = "Search work calendar", read_only_hint = true, open_world_hint = true)
+        annotations(
+            title = "Search or list work calendar",
+            read_only_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn calendar_search(
         &self,

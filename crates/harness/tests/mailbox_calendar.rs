@@ -5,15 +5,15 @@ use chrono::{TimeZone as _, Utc};
 use eas_mail_mcp::ErrorCode;
 use eas_mail_mcp::backend::AccountBackend as _;
 use eas_mail_protocol::protocol::{
-    build_availability, build_calendar_search, build_initial_provision, build_item_fetch,
-    build_policy_ack,
+    build_availability, build_calendar_search, build_folder_sync, build_initial_provision,
+    build_item_fetch, build_policy_ack, build_sync,
 };
 use eas_mail_protocol::wbxml::{Element, encode};
-use eas_mail_protocol::{Command, Patch, RequestSafety};
+use eas_mail_protocol::{CollectionKind, Command, Patch, RequestSafety};
 
 use support::{
-    call, default_policy, mailbox, mailbox_unprovisioned, options, options_with_calendar,
-    provision_response, read,
+    call, default_policy, folder_response, mailbox, mailbox_unprovisioned, options,
+    options_with_calendar, provision_response, read, sync_response,
 };
 
 #[tokio::test]
@@ -92,6 +92,39 @@ async fn calendar_search_and_get_use_no_folder_or_calendar_sync() -> anyhow::Res
     Ok(())
 }
 
+#[tokio::test]
+async fn calendar_agenda_scans_fresh_metadata_through_empty_pages() -> anyhow::Result<()> {
+    let calls = vec![
+        options_with_calendar(),
+        read(Command::FolderSync, build_folder_sync("0")?, folder_response("folders-1", true)?),
+        read(
+            Command::Sync,
+            build_sync("calendar", "0", CollectionKind::Calendar, 6, 0)?,
+            sync_response("agenda-1", 1, false, Vec::new())?,
+        ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "agenda-1", CollectionKind::Calendar, 6, 0)?,
+            sync_response("agenda-2", 1, true, Vec::new())?,
+        ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "agenda-2", CollectionKind::Calendar, 6, 0)?,
+            sync_response("agenda-3", 1, false, vec![calendar_change()])?,
+        ),
+    ];
+    let (mailbox, transport) = mailbox(calls, default_policy())?;
+    let agenda = mailbox.scan_calendar_metadata().await?;
+    assert_eq!(agenda.total, 1);
+    let event =
+        agenda.events.first().ok_or_else(|| anyhow::anyhow!("calendar agenda fixture is empty"))?;
+    assert_eq!(event.fields.subject, Patch::Value("Agenda item".into()));
+    assert_eq!(event.fields.body, Patch::Missing);
+    assert_eq!(event.collection_id.as_deref(), Some("calendar"));
+    transport.verify_complete()?;
+    Ok(())
+}
+
 fn instant(hour: u32, minute: u32) -> anyhow::Result<chrono::DateTime<Utc>> {
     Utc.with_ymd_and_hms(2026, 8, 3, hour, minute, 0)
         .single()
@@ -145,4 +178,18 @@ fn calendar_item_response() -> eas_mail_protocol::Result<Vec<u8>> {
     fetch.push(properties);
     root.push(fetch);
     encode(&root)
+}
+
+fn calendar_change() -> Element {
+    let mut add = Element::new("AirSync", "Add");
+    add.push(Element::text("AirSync", "ServerId", "event-1"));
+    let mut data = Element::new("AirSync", "ApplicationData");
+    data.push(Element::text("Calendar", "Subject", "Agenda item"));
+    data.push(Element::text("Calendar", "StartTime", "20260803T090000Z"));
+    data.push(Element::text("Calendar", "EndTime", "20260803T100000Z"));
+    let mut body = Element::new("AirSyncBase", "Body");
+    body.push(Element::text("AirSyncBase", "Data", "must not escape metadata scan"));
+    data.push(body);
+    add.push(data);
+    add
 }

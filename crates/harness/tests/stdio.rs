@@ -177,6 +177,22 @@ fn verify_tool_schemas(tools: &[rmcp::model::Tool]) -> Result<()> {
                 == Some(480),
         "calendar slot schema is missing duration bounds"
     );
+    let search_schema = tools
+        .iter()
+        .find(|tool| tool.name == "calendar_search")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("calendar_search schema is missing")?;
+    let required =
+        search_schema.pointer("/required").and_then(Value::as_array).cloned().unwrap_or_default();
+    anyhow::ensure!(
+        !required.iter().any(|value| value == "query")
+            && search_schema.pointer("/properties/date_from").is_some()
+            && search_schema.pointer("/properties/date_to").is_some()
+            && search_schema.pointer("/properties/time_zone").is_some()
+            && search_schema.pointer("/properties/limit/maximum").and_then(Value::as_u64)
+                == Some(100),
+        "calendar_search schema is missing compact agenda inputs"
+    );
     let create_schema = tools
         .iter()
         .find(|tool| tool.name == "calendar_create")
@@ -216,6 +232,18 @@ async fn exercise_calendar(peer: &Peer<RoleClient>) -> Result<()> {
     let page = call(peer, "calendar_search", Some(json!({ "query": "planning" }))).await?;
     let event_ref = text_at(&page, "/data/items/0/event_ref")?;
     call(peer, "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
+    let agenda = call(
+        peer,
+        "calendar_search",
+        Some(json!({
+            "date_from": "2023-11-15",
+            "date_to": "2023-11-15",
+            "time_zone": "UTC"
+        })),
+    )
+    .await?;
+    let agenda_ref = text_at(&agenda, "/data/items/0/event_ref")?;
+    call(peer, "calendar_get", Some(json!({ "event_ref": agenda_ref }))).await?;
     exercise_calendar_writes(peer).await?;
     Ok(())
 }

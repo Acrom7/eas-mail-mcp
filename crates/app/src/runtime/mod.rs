@@ -1,4 +1,5 @@
 mod calendar;
+mod calendar_agenda;
 mod calendar_mime;
 mod calendar_prepare;
 mod calendar_respond;

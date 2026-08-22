@@ -99,7 +99,7 @@ async fn check_calendar(
     email: &str,
     selection: Option<Vec<String>>,
 ) -> anyhow::Result<usize> {
-    let (date, working_hours) = current_schedule();
+    let (date, agenda_to, working_hours) = current_schedule();
     let calendar = required(
         runtime
             .calendar_availability(CalendarAvailabilityInput {
@@ -120,7 +120,7 @@ async fn check_calendar(
                 account_id: Some(account_id.to_owned()),
                 participants: vec![email.to_owned()],
                 date_from: date.clone(),
-                date_to: date,
+                date_to: date.clone(),
                 time_zone: "UTC".into(),
                 working_hours,
                 duration_minutes: 30,
@@ -130,10 +130,26 @@ async fn check_calendar(
             .await,
         "calendar_find_slots",
     )?;
+    let agenda = required(
+        runtime
+            .calendar_search(CalendarSearchInput {
+                query: None,
+                date_from: Some(date.clone()),
+                date_to: Some(agenda_to),
+                time_zone: Some("UTC".into()),
+                account_ids: selection.clone(),
+                limit: Some(100),
+            })
+            .await,
+        "calendar_search agenda",
+    )?;
     let search = required(
         runtime
             .calendar_search(CalendarSearchInput {
-                query: email.to_owned(),
+                query: Some(email.to_owned()),
+                date_from: None,
+                date_to: None,
+                time_zone: None,
                 account_ids: selection,
                 limit: Some(1),
             })
@@ -151,12 +167,13 @@ async fn check_calendar(
             "calendar_get",
         )?;
     }
-    Ok(search.items.len())
+    Ok(agenda.items.len())
 }
 
-fn current_schedule() -> (String, Vec<WorkingHoursInput>) {
+fn current_schedule() -> (String, String, Vec<WorkingHoursInput>) {
     use chrono::Datelike as _;
     let date = chrono::Utc::now().date_naive();
+    let agenda_to = date.checked_add_days(chrono::Days::new(6)).unwrap_or(date);
     let weekday = match date.weekday() {
         chrono::Weekday::Mon => ScheduleWeekday::Mon,
         chrono::Weekday::Tue => ScheduleWeekday::Tue,
@@ -168,6 +185,7 @@ fn current_schedule() -> (String, Vec<WorkingHoursInput>) {
     };
     (
         date.to_string(),
+        agenda_to.to_string(),
         vec![WorkingHoursInput {
             weekdays: vec![weekday],
             start: "00:00".into(),

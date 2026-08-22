@@ -104,7 +104,10 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
     assert_eq!(slots.data.map(|data| data.windows.len()), Some(1));
     let events = runtime
         .calendar_search(CalendarSearchInput {
-            query: "planning".into(),
+            query: Some("planning".into()),
+            date_from: None,
+            date_to: None,
+            time_zone: None,
             account_ids: None,
             limit: None,
         })
@@ -123,9 +126,14 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
     assert!(event.can_update && event.can_cancel);
     assert!(!event.can_delete && !event.can_respond);
 
+    exercise_agenda(runtime).await?;
+
     let received_ref = runtime
         .calendar_search(CalendarSearchInput {
-            query: "received".into(),
+            query: Some("received".into()),
+            date_from: None,
+            date_to: None,
+            time_zone: None,
             account_ids: None,
             limit: Some(1),
         })
@@ -144,7 +152,10 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
     assert_eq!(
         runtime
             .calendar_search(CalendarSearchInput {
-                query: " ".into(),
+                query: Some(" ".into()),
+                date_from: None,
+                date_to: None,
+                time_zone: None,
                 account_ids: None,
                 limit: None,
             })
@@ -153,6 +164,25 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
             .map(|error| error.code),
         Some(ErrorCode::ValidationFailed)
     );
+    Ok(())
+}
+
+async fn exercise_agenda(runtime: &Runtime) -> anyhow::Result<()> {
+    let agenda = runtime
+        .calendar_search(CalendarSearchInput {
+            query: None,
+            date_from: Some("2023-11-15".into()),
+            date_to: Some("2023-11-15".into()),
+            time_zone: Some("UTC".into()),
+            account_ids: None,
+            limit: Some(10),
+        })
+        .await
+        .data
+        .ok_or_else(|| anyhow::anyhow!("calendar agenda returned no data"))?;
+    assert_eq!(agenda.items.len(), 1);
+    let first = agenda.items.first().ok_or_else(|| anyhow::anyhow!("agenda item is missing"))?;
+    assert!(!first.recurring);
     Ok(())
 }
 

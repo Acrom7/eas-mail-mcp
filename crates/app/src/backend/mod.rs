@@ -52,6 +52,9 @@ pub trait AccountBackend: Send + Sync {
     /// Performs bounded server-side Calendar Search.
     async fn search_calendar(&self, query: &str, limit: usize) -> Result<BackendCalendarSearch>;
 
+    /// Reads a fresh metadata-only Calendar snapshot for local agenda filtering.
+    async fn scan_calendar_metadata(&self) -> Result<BackendCalendarSearch>;
+
     /// Fetches one full Calendar item from a Search LongId.
     async fn fetch_calendar(
         &self,

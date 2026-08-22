@@ -13,8 +13,10 @@ be duplicated by retries or initiated without adequate user review.
 
 Expose 13 read tools, four mail write tools, and five Calendar lifecycle tools
 with structured schemas. Lists are bounded to 100, previews to 500 characters,
-and bodies to 12,000 by default and 50,000 maximum. Search always runs on
-Exchange; cursors point to immutable 15-minute RAM snapshots.
+and bodies to 12,000 by default and 50,000 maximum. Text search always runs on
+Exchange. Calendar date-range search performs a fresh metadata-only Sync and
+returns only locally filtered, recurrence-expanded summaries; no Calendar cache
+is retained. Cursors point to immutable 15-minute RAM snapshots.
 
 Calendar create, update, delete, cancel, and respond support non-recurring items
 only. Organizer lifecycle operations combine Calendar Sync with MIME/iCalendar

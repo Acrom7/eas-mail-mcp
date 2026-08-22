@@ -263,6 +263,12 @@ impl AccountBackend for FakeBackend {
         Ok(BackendCalendarSearch { events, total: 1 })
     }
 
+    async fn scan_calendar_metadata(&self) -> Result<BackendCalendarSearch> {
+        self.check().await?;
+        let events = vec![event(&self.account.account_id)];
+        Ok(BackendCalendarSearch { total: events.len(), events })
+    }
+
     async fn fetch_calendar(&self, source: &BackendEvent, _: usize) -> Result<BackendEvent> {
         self.check().await?;
         Ok(source.clone())

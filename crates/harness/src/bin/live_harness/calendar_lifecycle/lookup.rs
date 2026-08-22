@@ -80,7 +80,10 @@ pub async fn find_event(
     let search = required(
         runtime
             .calendar_search(CalendarSearchInput {
-                query: event_search_query(expected).to_owned(),
+                query: Some(event_search_query(expected).to_owned()),
+                date_from: None,
+                date_to: None,
+                time_zone: None,
                 account_ids: Some(vec![account_id.to_owned()]),
                 limit: Some(20),
             })

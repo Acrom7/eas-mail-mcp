@@ -144,6 +144,8 @@ pub(super) fn calendar_event_summary(
         location: plain_text(string(&fields.location)),
         organizer: plain_text(string(&fields.organizer)),
         attendee_count: u32::try_from(list(&fields.attendees).len()).unwrap_or(u32::MAX),
+        recurring: !map(&fields.recurrence).is_empty()
+            || !nested_map(&fields.exceptions).is_empty(),
         untrusted_external_content: true,
     }
 }

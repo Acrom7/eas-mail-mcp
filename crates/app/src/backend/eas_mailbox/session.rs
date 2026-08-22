@@ -297,6 +297,10 @@ impl AccountBackend for EasMailbox {
         self.search_events(query, limit).await
     }
 
+    async fn scan_calendar_metadata(&self) -> Result<BackendCalendarSearch> {
+        self.scan_calendar_events().await
+    }
+
     async fn fetch_calendar(
         &self,
         source: &BackendEvent,

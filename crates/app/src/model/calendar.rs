@@ -87,17 +87,23 @@ pub struct CalendarFindSlotsInput {
     pub limit: Option<u8>,
 }
 
-/// Input for explicit server-side Calendar Search.
+/// Input for compact own-calendar search or a bounded agenda range.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarSearchInput {
-    /// Search text sent to EAS Search.
+    /// Optional search text. Required when no date range is supplied.
     #[schemars(length(min = 1))]
-    pub query: String,
+    pub query: Option<String>,
+    /// First local date in `YYYY-MM-DD` format.
+    pub date_from: Option<String>,
+    /// Last inclusive local date in `YYYY-MM-DD` format.
+    pub date_to: Option<String>,
+    /// IANA timezone used to interpret the optional local date range.
+    pub time_zone: Option<String>,
     /// Account IDs; omitted means all enabled accounts.
     pub account_ids: Option<Vec<String>>,
-    /// Maximum event summaries, default 20 and maximum 50.
-    #[schemars(range(min = 1, max = 50))]
+    /// Maximum event summaries, default 50 and maximum 100.
+    #[schemars(range(min = 1, max = 100))]
     pub limit: Option<u8>,
 }
 
@@ -296,11 +302,13 @@ pub struct CalendarEventSummary {
     pub organizer: String,
     /// Number of attendees in the Search result.
     pub attendee_count: u32,
+    /// Whether this summary represents an occurrence of a recurring series.
+    pub recurring: bool,
     /// External content marker.
     pub untrusted_external_content: bool,
 }
 
-/// Bounded server-side Calendar Search response.
+/// Bounded compact Calendar search or agenda response.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CalendarSearchData {
     /// Compact matching events.

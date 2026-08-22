@@ -121,7 +121,10 @@ fn make_runtime(
 async fn event_ref(runtime: &Runtime, query: &str) -> anyhow::Result<String> {
     runtime
         .calendar_search(CalendarSearchInput {
-            query: query.into(),
+            query: Some(query.into()),
+            date_from: None,
+            date_to: None,
+            time_zone: None,
             account_ids: Some(vec!["work".into()]),
             limit: Some(1),
         })
