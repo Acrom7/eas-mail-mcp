@@ -90,7 +90,11 @@ initialized without requesting changes. If ItemOperations omits mutable IDs, a
 bounded metadata-only `FilterType=6` Sync scan discards every event except the
 matching UID. Invalid keys reset only that Calendar collection. Organizer
 notifications and attendee replies are plain-text plus `text/calendar` MIME
-sent through EAS SendMail; responses also use MeetingResponse.
+sent through EAS SendMail; responses also use MeetingResponse. For servers that
+do not auto-create tentative items from external invitations, mail Search and
+ItemOperations expose the request metadata and the opaque Search LongId is sent
+directly to MeetingResponse. Collection and request IDs are deliberately omitted
+on that protocol path.
 
 Every mail or calendar write takes a per-account advisory file lock shared by
 independent stdio processes. Multi-step Calendar operations checkpoint a

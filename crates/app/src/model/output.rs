@@ -132,8 +132,28 @@ pub struct MailSummary {
     pub is_read: bool,
     /// Whether attachments are present.
     pub has_attachments: bool,
+    /// Meeting request, update, cancellation, response, or other Calendar mail classification.
+    pub calendar_message: Option<CalendarMailKind>,
+    /// Whether this mail reference can be passed to `calendar_respond`.
+    pub can_respond: bool,
     /// External content marker.
     pub untrusted_external_content: bool,
+}
+
+/// Calendar semantics attached to an Exchange mail item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CalendarMailKind {
+    /// Initial actionable meeting request.
+    Request,
+    /// Meeting update; full updates can be actionable.
+    Update,
+    /// Meeting cancellation.
+    Cancellation,
+    /// Attendee response sent to an organizer.
+    Response,
+    /// Unrecognized Calendar message subtype.
+    Other,
 }
 
 /// Paginated mail response payload.

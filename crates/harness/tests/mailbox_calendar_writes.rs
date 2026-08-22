@@ -2,11 +2,13 @@
 mod support;
 
 use chrono::{TimeZone as _, Utc};
-use eas_mail_mcp::backend::{AccountBackend as _, BackendCalendarMutation, BackendEvent};
+use eas_mail_mcp::backend::{
+    AccountBackend as _, BackendCalendarMutation, BackendEvent, BackendMail, MailSource,
+};
 use eas_mail_protocol::protocol::{
     build_calendar_add, build_calendar_change, build_calendar_delete, build_folder_sync,
-    build_initial_provision, build_item_fetch, build_meeting_response, build_policy_ack,
-    build_send, build_sync,
+    build_initial_provision, build_item_fetch, build_meeting_response,
+    build_meeting_response_long_id, build_policy_ack, build_send, build_sync,
 };
 use eas_mail_protocol::wbxml::{Element, encode};
 use eas_mail_protocol::{
@@ -95,6 +97,63 @@ async fn item_operations_source_is_reused_for_change_response_and_delete() -> an
         Some("accepted-event")
     );
     mailbox.delete_calendar_item(&updated).await?;
+    transport.verify_complete()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn inbox_meeting_response_uses_search_long_id_and_refreshes_policy() -> anyhow::Result<()> {
+    let body = build_meeting_response_long_id("long-request", MeetingResponseChoice::Accept)?;
+    let calls = vec![
+        options_with_calendar_writes(),
+        call(
+            Command::MeetingResponse,
+            body.clone(),
+            Some(123),
+            RequestSafety::Mutation,
+            449,
+            Vec::new(),
+        ),
+        call(
+            Command::Provision,
+            build_initial_provision()?,
+            None,
+            RequestSafety::RetrySafe,
+            200,
+            provision_response(1, Some(700), None)?,
+        ),
+        call(
+            Command::Provision,
+            build_policy_ack(700, true)?,
+            Some(0),
+            RequestSafety::RetrySafe,
+            200,
+            provision_response(1, Some(701), Some(1))?,
+        ),
+        call(
+            Command::MeetingResponse,
+            body,
+            Some(701),
+            RequestSafety::Mutation,
+            200,
+            meeting_response("long-request", Some("accepted-event"))?,
+        ),
+    ];
+    let (mailbox, transport) = mailbox(calls, default_policy())?;
+    let source = BackendMail {
+        account_id: "work".into(),
+        folder_id: "inbox".into(),
+        source: MailSource::LongId("long-request".into()),
+        fields: eas_mail_protocol::MailFields::default(),
+    };
+
+    assert_eq!(
+        mailbox
+            .respond_meeting_request(&source.source, MeetingResponseChoice::Accept)
+            .await?
+            .as_deref(),
+        Some("accepted-event")
+    );
     transport.verify_complete()?;
     Ok(())
 }

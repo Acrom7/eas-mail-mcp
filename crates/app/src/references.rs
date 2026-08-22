@@ -54,6 +54,12 @@ pub(super) struct AttachmentReference {
 }
 
 #[derive(Clone)]
+pub(super) enum MeetingReference {
+    Event(BackendEvent),
+    Mail(BackendMail),
+}
+
+#[derive(Clone)]
 enum Snapshot {
     Mail(Arc<Vec<MailSummary>>),
 }
@@ -107,6 +113,12 @@ impl References {
         state.mail.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
     }
 
+    pub(super) fn invalidate_mail(&self, id: &str) -> Result<()> {
+        let mut state = self.lock()?;
+        state.mail.remove(id);
+        Ok(())
+    }
+
     pub(super) fn insert_event(&self, value: BackendEvent) -> Result<String> {
         let id = format!("event_{}", self.ids.next());
         let now = self.clock.now();
@@ -122,6 +134,20 @@ impl References {
         let mut state = self.lock()?;
         prune(&mut state, now);
         state.events.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
+    }
+
+    pub(super) fn meeting(&self, id: &str) -> Result<MeetingReference> {
+        let now = self.clock.now();
+        let mut state = self.lock()?;
+        prune(&mut state, now);
+        if let Some(entry) = state.events.get(id) {
+            return Ok(MeetingReference::Event(entry.value.clone()));
+        }
+        state
+            .mail
+            .get(id)
+            .map(|entry| MeetingReference::Mail(entry.value.clone()))
+            .ok_or_else(expired)
     }
 
     pub(super) fn invalidate_event(&self, id: &str) -> Result<()> {

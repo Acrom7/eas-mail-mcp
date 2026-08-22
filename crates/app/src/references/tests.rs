@@ -99,6 +99,8 @@ fn summaries() -> Vec<MailSummary> {
             preview: String::new(),
             is_read: false,
             has_attachments: false,
+            calendar_message: None,
+            can_respond: false,
             untrusted_external_content: true,
         })
         .collect()

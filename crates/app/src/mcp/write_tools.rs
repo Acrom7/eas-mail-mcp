@@ -155,7 +155,7 @@ impl MailMcpServer {
         Json(self.runtime.calendar_cancel(input).await)
     }
 
-    /// Immediately responds to a referenced non-recurring received meeting.
+    /// Immediately responds to a non-recurring Calendar event or actionable invitation mail.
     #[tool(
         name = "calendar_respond",
         annotations(

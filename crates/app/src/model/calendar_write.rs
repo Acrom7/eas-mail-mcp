@@ -165,7 +165,7 @@ pub enum CalendarResponseChoice {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarRespondInput {
-    /// Process-local event reference.
+    /// Process-local Calendar event or actionable meeting-request mail reference.
     pub event_ref: String,
     /// Accept, tentatively accept, or decline.
     pub response: CalendarResponseChoice,

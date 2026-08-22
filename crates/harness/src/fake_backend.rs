@@ -3,6 +3,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+#[path = "fake_backend/mail.rs"]
+mod mail_fixture;
+
 use async_trait::async_trait;
 use eas_mail_mcp::backend::{
     AccountBackend, BackendAccount, BackendCalendarMutation, BackendCalendarSearch,
@@ -10,10 +13,12 @@ use eas_mail_mcp::backend::{
 };
 use eas_mail_mcp::{AppError, ErrorCode, Result};
 use eas_mail_protocol::{
-    Attachment, CalendarApplication, CalendarAttendee, CalendarFields, CandidateAvailability,
-    CollectionKind, Folder, FreeBusyStatus, MailFields, MeetingResponseChoice, Patch, ProfileKey,
-    RecipientAvailability, RecipientResolution, ResolvedRecipient,
+    CalendarApplication, CalendarAttendee, CalendarFields, CandidateAvailability, CollectionKind,
+    Folder, FreeBusyStatus, MeetingResponseChoice, Patch, ProfileKey, RecipientAvailability,
+    RecipientResolution, ResolvedRecipient,
 };
+
+use self::mail_fixture::mail;
 
 /// Deterministic high-level backend used by MCP black-box tests.
 #[derive(Debug)]
@@ -192,11 +197,12 @@ impl AccountBackend for FakeBackend {
         })
     }
 
-    async fn search_mail(&self, _: &str, _: usize) -> Result<Vec<BackendMail>> {
+    async fn search_mail(&self, query: &str, _: usize) -> Result<Vec<BackendMail>> {
         self.check().await?;
+        let prefix = if query == "meeting-request" { "meeting-request" } else { "long-message" };
         Ok((0..self.mail_count)
             .map(|index| {
-                mail(&self.account.account_id, MailSource::LongId(format!("long-message-{index}")))
+                mail(&self.account.account_id, MailSource::LongId(format!("{prefix}-{index}")))
             })
             .collect())
     }
@@ -309,6 +315,16 @@ impl AccountBackend for FakeBackend {
         Ok(Some("responded-event".into()))
     }
 
+    async fn respond_meeting_request(
+        &self,
+        _: &MailSource,
+        _: MeetingResponseChoice,
+    ) -> Result<Option<String>> {
+        self.check_operation("calendar_respond_request").await?;
+        self.record("calendar_respond_request")?;
+        Ok(Some("responded-event".into()))
+    }
+
     async fn send_calendar_message(&self, _: &str, _: Vec<u8>) -> Result<()> {
         self.check_operation("calendar_send").await?;
         self.record("calendar_send")
@@ -352,36 +368,6 @@ fn folders() -> Vec<Folder> {
             kind: Some(CollectionKind::Calendar),
         },
     ]
-}
-
-fn mail(account_id: &str, source: MailSource) -> BackendMail {
-    BackendMail {
-        account_id: account_id.into(),
-        folder_id: match &source {
-            MailSource::Item { folder_id, .. } => folder_id.clone(),
-            MailSource::LongId(_) => String::new(),
-        },
-        source,
-        fields: MailFields {
-            subject: Patch::Value("Quarterly update".into()),
-            sender: Patch::Value("Sender <sender@example.invalid>".into()),
-            recipients: Patch::Value(format!("{account_id}@example.invalid")),
-            cc: Patch::Value(String::new()),
-            received_at: Patch::Value(chrono::DateTime::from_timestamp(1_700_000_000, 0)),
-            body: Patch::Value("<p>Safe <strong>plain</strong> body</p>".into()),
-            body_truncated: Patch::Value(false),
-            is_read: Patch::Value(false),
-            importance: Patch::Value(1),
-            attachments: Patch::Value(vec![Attachment {
-                display_name: "report.txt".into(),
-                file_reference: "attachment-1".into(),
-                size: 18,
-                content_type: "text/plain".into(),
-                is_inline: false,
-                content_id: String::new(),
-            }]),
-        },
-    }
 }
 
 fn event(account_id: &str) -> BackendEvent {

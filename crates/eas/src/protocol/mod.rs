@@ -4,6 +4,7 @@ mod availability;
 mod calendar_mutation;
 mod compose;
 mod folders;
+mod global_object_id;
 mod items;
 mod meeting_response;
 mod policy;
@@ -17,12 +18,15 @@ pub use calendar_mutation::{
 };
 pub use compose::{ComposeSource, build_mime_message, build_send, build_smart, parse_compose};
 pub use folders::{build_folder_sync, parse_folder_sync};
+pub use global_object_id::global_object_id_uid;
 pub use items::{
     build_attachment_fetch, build_calendar_search, build_item_fetch, build_search,
     parse_attachment_fetch, parse_calendar_item_fetch, parse_calendar_search, parse_item_fetch,
     parse_search,
 };
-pub use meeting_response::{build_meeting_response, parse_meeting_response};
+pub use meeting_response::{
+    build_meeting_response, build_meeting_response_long_id, parse_meeting_response,
+};
 pub use policy::{PolicyDecision, evaluate_policy};
 pub use provision::{
     ProvisionResult, build_initial_provision, build_policy_ack, build_wipe_ack, parse_provision,

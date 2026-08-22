@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::wbxml::{Element, decode, encode};
 use crate::{
     Attachment, CalendarFields, ChangeData, ChangeKind, CollectionKind, EasError, MailFields,
-    MutationResult, Patch, Result, SyncChange, SyncPage,
+    MeetingRequest, MutationResult, Patch, Result, SyncChange, SyncPage,
 };
 
 use super::tree::{direct_text, element, integer, parse_datetime, push_text};
@@ -156,6 +156,37 @@ pub(super) fn parse_mail_fields(application: &Element) -> MailFields {
         attachments: application
             .child("AirSyncBase", "Attachments")
             .map_or(Patch::Missing, |container| Patch::Value(parse_attachments(container))),
+        message_class: string_patch(application, "Email", "MessageClass"),
+        meeting_request: application
+            .child("Email", "MeetingRequest")
+            .map_or(Patch::Missing, |value| Patch::Value(parse_meeting_request(value))),
+    }
+}
+
+fn parse_meeting_request(value: &Element) -> MeetingRequest {
+    MeetingRequest {
+        all_day: direct_text(value, "Email", "AllDayEvent").is_some_and(|value| value == "1"),
+        dt_stamp: parse_datetime(direct_text(value, "Email", "DtStamp")),
+        starts_at: parse_datetime(direct_text(value, "Email", "StartTime")),
+        ends_at: parse_datetime(direct_text(value, "Email", "EndTime")),
+        instance_type: direct_text(value, "Email", "InstanceType")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0),
+        location: direct_text(value, "Email", "Location").unwrap_or_default(),
+        organizer: direct_text(value, "Email", "Organizer").unwrap_or_default(),
+        reminder_minutes: direct_text(value, "Email", "Reminder")
+            .and_then(|value| value.parse().ok()),
+        response_requested: direct_text(value, "Email", "ResponseRequested")
+            .is_some_and(|value| value == "1"),
+        busy_status: direct_text(value, "Email", "BusyStatus")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(2),
+        time_zone: direct_text(value, "Email", "TimeZone").unwrap_or_default(),
+        global_object_id: direct_text(value, "Email", "GlobalObjId").unwrap_or_default(),
+        uid: direct_text(value, "Calendar", "UID").unwrap_or_default(),
+        message_type: direct_text(value, "Email2", "MeetingMessageType")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0),
     }
 }
 

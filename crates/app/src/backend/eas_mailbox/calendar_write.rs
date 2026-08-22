@@ -444,7 +444,7 @@ impl EasMailbox {
         if ready { Ok(source.clone()) } else { self.mutable_event(source).await }
     }
 
-    fn require_calendar_capability(
+    pub(super) fn require_calendar_capability(
         &self,
         state: &SessionState,
         command: Command,

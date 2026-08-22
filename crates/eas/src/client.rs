@@ -366,6 +366,18 @@ impl EasClient {
         protocol::parse_meeting_response(&response.body)
     }
 
+    /// Responds to one meeting request returned by Search LongId with no network retry.
+    pub async fn meeting_response_long_id(
+        &self,
+        key: u32,
+        long_id: &str,
+        response: MeetingResponseChoice,
+    ) -> Result<MeetingResponseResult> {
+        let body = protocol::build_meeting_response_long_id(long_id, response)?;
+        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
+        protocol::parse_meeting_response(&response.body)
+    }
+
     /// Sends a new MIME message with an EAS ClientId.
     pub async fn send(&self, key: u32, client_id: &str, mime: Vec<u8>) -> Result<MutationResult> {
         let body = protocol::build_send(client_id, mime)?;

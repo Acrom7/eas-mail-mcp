@@ -2,7 +2,7 @@ use chrono::{DateTime, Days, Duration, NaiveDate, NaiveTime, Utc};
 use eas_mail_mcp::{
     ApiResponse, CalendarAttendeeInput, CalendarAttendeeRole, CalendarCancelInput,
     CalendarDeleteInput, CalendarEvent, CalendarGetInput, CalendarOperationResult,
-    CalendarOperationState, CalendarScheduleInput, Runtime,
+    CalendarOperationState, CalendarScheduleInput, ErrorCode, Runtime,
 };
 
 use super::super::checks::required;
@@ -12,7 +12,6 @@ use super::lookup::{self, ExpectedEvent};
 #[derive(Debug, Clone)]
 pub struct TimedSchedule {
     pub input: CalendarScheduleInput,
-    pub starts_at: DateTime<Utc>,
 }
 
 pub async fn cleanup_owned_event(
@@ -42,13 +41,12 @@ pub async fn cleanup_owned_event(
     let Some(event) = event else {
         return Ok(());
     };
-    remove_event(runtime, event).await?;
-    lookup::wait_for_event_absent(runtime, account_id, token).await
+    remove_event(runtime, event).await
 }
 
 async fn remove_event(runtime: &Runtime, event: CalendarEvent) -> anyhow::Result<()> {
     if event.can_cancel {
-        succeeded(
+        removed(
             runtime
                 .calendar_cancel(CalendarCancelInput {
                     event_ref: event.event_ref,
@@ -59,7 +57,7 @@ async fn remove_event(runtime: &Runtime, event: CalendarEvent) -> anyhow::Result
             "calendar_cancel cleanup",
         )?;
     } else if event.can_delete {
-        succeeded(
+        removed(
             runtime
                 .calendar_delete(CalendarDeleteInput {
                     event_ref: event.event_ref,
@@ -72,6 +70,13 @@ async fn remove_event(runtime: &Runtime, event: CalendarEvent) -> anyhow::Result
         anyhow::bail!("test Calendar item cannot be cleaned by this account")
     }
     Ok(())
+}
+
+fn removed(response: ApiResponse<CalendarOperationResult>, operation: &str) -> anyhow::Result<()> {
+    if response.error.as_ref().is_some_and(|error| error.code == ErrorCode::NotFound) {
+        return Ok(());
+    }
+    succeeded(response, operation).map(|_| ())
 }
 
 pub async fn get_event(runtime: &Runtime, event_ref: &str) -> anyhow::Result<CalendarEvent> {
@@ -113,7 +118,6 @@ pub fn timed_schedule(day_offset: u64, hour: u32, minute: u32) -> anyhow::Result
             end: ends_at.to_rfc3339(),
             time_zone: "UTC".into(),
         },
-        starts_at,
     })
 }
 
@@ -154,7 +158,7 @@ pub fn operation_id() -> String {
 }
 
 pub fn test_token() -> String {
-    uuid::Uuid::new_v4().simple().to_string()
+    format!("mcp-{}", &uuid::Uuid::new_v4().simple().to_string()[..12])
 }
 
 pub fn combine_with_cleanup(

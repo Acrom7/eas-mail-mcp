@@ -3,12 +3,9 @@ use std::sync::Arc;
 use super::Runtime;
 use super::calendar_mime::CalendarMessageMethod;
 use super::calendar_prepare::{self, EventOwnership};
-use super::calendar_write_result::{
-    self, STEP_ITEM, STEP_NOTIFY_CURRENT, STEP_NOTIFY_REMOVED, STEP_REPLY, STEP_RESPONSE,
-};
+use super::calendar_write_result::{self, STEP_ITEM, STEP_NOTIFY_CURRENT, STEP_NOTIFY_REMOVED};
 use super::calendar_write_support::{
-    notification, operation_uid, organizer, required_notification, response_choice,
-    response_reference, step_client_id,
+    notification, operation_uid, required_notification, step_client_id,
 };
 use crate::backend::AccountBackend;
 use crate::model::{
@@ -83,7 +80,6 @@ impl Runtime {
             &prepared.mutation.application.attendees,
             CalendarMessageMethod::Request,
             "",
-            &request_id,
         )?;
         let _guard = self.write_locks.acquire(&input.account_id).await?;
         let begin =
@@ -140,7 +136,6 @@ impl Runtime {
             &prepared.event.mutation.application.attendees,
             CalendarMessageMethod::Request,
             "",
-            &request_id,
         )?;
         let cancel_mime = notification(
             &account.email,
@@ -148,7 +143,6 @@ impl Runtime {
             &prepared.removed_attendees,
             CalendarMessageMethod::Cancel,
             "",
-            &cancel_id,
         )?;
         let begin = self.begin_write(
             &reference.account_id,
@@ -250,7 +244,6 @@ impl Runtime {
             &prepared.mutation.application.attendees,
             CalendarMessageMethod::Cancel,
             &input.comment,
-            &cancel_id,
         )?;
         let begin = self.begin_write(
             &reference.account_id,
@@ -275,74 +268,7 @@ impl Runtime {
         self.calendar_success(&begin.record, steps, None)
     }
 
-    async fn calendar_respond_result(
-        &self,
-        input: CalendarRespondInput,
-    ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        if let Some(record) =
-            self.replay_write("calendar_respond", &input.idempotency_key, &input)?
-        {
-            return Ok((calendar_write_result::existing(record), Vec::new()));
-        }
-        calendar_prepare::validate_comment(&input.comment)?;
-        let reference = self.references.event(&input.event_ref)?;
-        calendar_prepare::require_non_recurring(&reference)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        self.require_calendar_capabilities(&backend, true).await?;
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
-        let source = backend.resolve_calendar_source(&reference).await?;
-        calendar_prepare::require_non_recurring(&source)?;
-        if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Attendee {
-            return Err(validation("calendar_respond requires a received meeting"));
-        }
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        let organizer = organizer(&source)?;
-        let reply_id = step_client_id(&input.idempotency_key, "reply")?;
-        let reply_mime = prepared
-            .mutation
-            .application
-            .response_requested
-            .then(|| {
-                required_notification(
-                    &account.email,
-                    &prepared,
-                    std::slice::from_ref(&organizer),
-                    CalendarMessageMethod::Reply(input.response),
-                    &input.comment,
-                    &reply_id,
-                )
-            })
-            .transpose()?;
-        let begin = self.begin_write(
-            &reference.account_id,
-            "calendar_respond",
-            &input.idempotency_key,
-            &input,
-        )?;
-        if !begin.inserted {
-            return Ok((calendar_write_result::existing(begin.record), Vec::new()));
-        }
-        let calendar_id =
-            match backend.respond_calendar_item(&source, response_choice(input.response)).await {
-                Ok(value) => value,
-                Err(error) => return self.calendar_failure(&begin.record, 0, error, None),
-            };
-        let mut steps = STEP_RESPONSE;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.references.invalidate_event(&input.event_ref)?;
-        let event_ref = response_reference(self, source, calendar_id, input.response)?;
-        if let Some(mime) = reply_mime {
-            if let Err(error) = backend.send_calendar_message(&reply_id, mime).await {
-                return self.calendar_failure(&begin.record, steps, error, event_ref);
-            }
-            steps |= STEP_REPLY;
-            self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        }
-        self.calendar_success(&begin.record, steps, event_ref)
-    }
-
-    fn calendar_success(
+    pub(super) fn calendar_success(
         &self,
         record: &JournalRecord,
         steps: u32,
@@ -361,7 +287,7 @@ impl Runtime {
         ))
     }
 
-    fn calendar_failure(
+    pub(super) fn calendar_failure(
         &self,
         record: &JournalRecord,
         steps: u32,
@@ -406,7 +332,7 @@ impl Runtime {
         ))
     }
 
-    async fn require_calendar_capabilities(
+    pub(super) async fn require_calendar_capabilities(
         &self,
         backend: &Arc<dyn AccountBackend>,
         meeting: bool,

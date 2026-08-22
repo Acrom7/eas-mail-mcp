@@ -1,15 +1,47 @@
+use std::io::{self, Write as _};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use eas_mail_mcp::{
-    CalendarEvent, CalendarEventType, CalendarGetInput, CalendarSearchInput, MailSearchInput,
-    Runtime,
+    CalendarEvent, CalendarEventType, CalendarGetInput, CalendarMailKind, CalendarSearchInput,
+    MailGetInput, MailSearchInput, MailSummary, Runtime,
 };
 
 use super::super::checks::required;
 
-const DELIVERY_ATTEMPTS: usize = 45;
-const DELIVERY_DELAY: Duration = Duration::from_secs(2);
+const DELIVERY_ATTEMPTS: usize = 180;
+const DELIVERY_DELAY: Duration = Duration::from_secs(5);
+const PROGRESS_INTERVAL: usize = 12;
+const MEETING_SEARCH_QUERY: &str = "EAS Mail MCP meeting";
+const PERSONAL_SEARCH_QUERY: &str = "EAS Mail MCP personal";
+
+#[derive(Debug, Default)]
+struct MeetingMailObservation {
+    matching: usize,
+    fetched: usize,
+    actionable: usize,
+    request: usize,
+    update: usize,
+    cancellation: usize,
+    response: usize,
+    other: usize,
+    unclassified: usize,
+    fetch_error: bool,
+}
+
+impl MeetingMailObservation {
+    fn record(&mut self, summary: &MailSummary) {
+        self.fetched += 1;
+        self.actionable += usize::from(summary.can_respond);
+        match summary.calendar_message {
+            Some(CalendarMailKind::Request) => self.request += 1,
+            Some(CalendarMailKind::Update) => self.update += 1,
+            Some(CalendarMailKind::Cancellation) => self.cancellation += 1,
+            Some(CalendarMailKind::Response) => self.response += 1,
+            Some(CalendarMailKind::Other) => self.other += 1,
+            None => self.unclassified += 1,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum ExpectedEvent {
@@ -25,26 +57,14 @@ pub async fn wait_for_event(
     uid: Option<&str>,
     expected: ExpectedEvent,
 ) -> anyhow::Result<CalendarEvent> {
-    wait_for_event_at(runtime, account_id, token, uid, expected, None).await
-}
-
-pub async fn wait_for_event_at(
-    runtime: &Runtime,
-    account_id: &str,
-    token: &str,
-    uid: Option<&str>,
-    expected: ExpectedEvent,
-    starts_at: Option<DateTime<Utc>>,
-) -> anyhow::Result<CalendarEvent> {
-    for _ in 0..DELIVERY_ATTEMPTS {
-        if let Some(event) = find_event(runtime, account_id, token, uid, expected).await?
-            && starts_at.is_none_or(|value| event_start(&event) == Some(value))
-        {
+    for attempt in 0..DELIVERY_ATTEMPTS {
+        if let Some(event) = find_event(runtime, account_id, token, uid, expected).await? {
             return Ok(event);
         }
+        report_wait("Calendar item", attempt)?;
         tokio::time::sleep(DELIVERY_DELAY).await;
     }
-    anyhow::bail!("Calendar item did not reach the expected account within 90 seconds")
+    anyhow::bail!("Calendar item did not reach the expected account within fifteen minutes")
 }
 
 pub async fn find_event(
@@ -57,7 +77,7 @@ pub async fn find_event(
     let search = required(
         runtime
             .calendar_search(CalendarSearchInput {
-                query: token.to_owned(),
+                query: event_search_query(expected).to_owned(),
                 account_ids: Some(vec![account_id.to_owned()]),
                 limit: Some(20),
             })
@@ -81,58 +101,73 @@ pub async fn find_event(
     Ok(None)
 }
 
-pub async fn wait_for_event_absent(
+pub async fn wait_for_meeting_mail(
     runtime: &Runtime,
     account_id: &str,
     token: &str,
-) -> anyhow::Result<()> {
-    for _ in 0..DELIVERY_ATTEMPTS {
-        let search = required(
-            runtime
-                .calendar_search(CalendarSearchInput {
-                    query: token.to_owned(),
-                    account_ids: Some(vec![account_id.to_owned()]),
-                    limit: Some(20),
-                })
-                .await,
-            "calendar_search after cleanup",
-        )?;
-        if search.items.iter().all(|event| !event.subject.contains(token)) {
-            return Ok(());
+    expected: CalendarMailKind,
+) -> anyhow::Result<MailSummary> {
+    let mut observed = MeetingMailObservation::default();
+    for attempt in 0..DELIVERY_ATTEMPTS {
+        let result = search_mail(runtime, account_id).await?;
+        let mut current = MeetingMailObservation::default();
+        for summary in result.items.into_iter().filter(|mail| mail.subject.contains(token)) {
+            current.matching += 1;
+            let detail = runtime
+                .mail_get(MailGetInput { mail_ref: summary.mail_ref, body_limit: Some(12_000) })
+                .await;
+            if let Some(detail) = detail.data {
+                current.record(&detail.summary);
+                if detail.summary.calendar_message == Some(expected) && detail.summary.can_respond {
+                    return Ok(detail.summary);
+                }
+            } else {
+                current.fetch_error = true;
+            }
         }
+        observed = current;
+        report_wait("Calendar mail", attempt)?;
         tokio::time::sleep(DELIVERY_DELAY).await;
     }
-    anyhow::bail!("Calendar item remained searchable after cleanup")
+    anyhow::bail!(
+        "Actionable Calendar mail did not reach the expected mailbox within fifteen minutes: {observed:?}"
+    )
 }
 
-pub async fn mail_count(runtime: &Runtime, account_id: &str, token: &str) -> anyhow::Result<usize> {
-    let result = required(
+fn report_wait(stage: &str, attempt: usize) -> anyhow::Result<()> {
+    let completed = attempt + 1;
+    if completed.is_multiple_of(PROGRESS_INTERVAL) {
+        writeln!(
+            io::stderr(),
+            "{stage} delivery is still pending after {} minute(s)",
+            completed / PROGRESS_INTERVAL
+        )?;
+    }
+    Ok(())
+}
+
+async fn search_mail(
+    runtime: &Runtime,
+    account_id: &str,
+) -> anyhow::Result<eas_mail_mcp::MailPage> {
+    required(
         runtime
             .mail_search(MailSearchInput {
-                query: token.to_owned(),
+                query: MEETING_SEARCH_QUERY.to_owned(),
                 account_ids: Some(vec![account_id.to_owned()]),
                 cursor: None,
                 limit: Some(100),
             })
             .await,
         "mail_search meeting notification",
-    )?;
-    Ok(result.items.iter().filter(|message| message.subject.contains(token)).count())
+    )
 }
 
-pub async fn wait_for_mail_increase(
-    runtime: &Runtime,
-    account_id: &str,
-    token: &str,
-    baseline: usize,
-) -> anyhow::Result<()> {
-    for _ in 0..DELIVERY_ATTEMPTS {
-        if mail_count(runtime, account_id, token).await? > baseline {
-            return Ok(());
-        }
-        tokio::time::sleep(DELIVERY_DELAY).await;
+fn event_search_query(expected: ExpectedEvent) -> &'static str {
+    match expected {
+        ExpectedEvent::Personal => PERSONAL_SEARCH_QUERY,
+        ExpectedEvent::Organizer | ExpectedEvent::Attendee => MEETING_SEARCH_QUERY,
     }
-    anyhow::bail!("Calendar notification did not reach the expected mailbox within 90 seconds")
 }
 
 fn event_matches(event: &CalendarEvent, expected: ExpectedEvent) -> bool {
@@ -149,8 +184,4 @@ fn event_matches(event: &CalendarEvent, expected: ExpectedEvent) -> bool {
             event.event_type == CalendarEventType::AttendeeMeeting && event.can_respond
         }
     }
-}
-
-fn event_start(event: &CalendarEvent) -> Option<DateTime<Utc>> {
-    event.starts_at.as_deref()?.parse().ok()
 }

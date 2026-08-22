@@ -14,12 +14,11 @@ pub(super) fn notification(
     recipients: &[CalendarAttendee],
     method: CalendarMessageMethod,
     comment: &str,
-    client_id: &str,
 ) -> Result<Option<Vec<u8>>> {
     if recipients.is_empty() {
         Ok(None)
     } else {
-        required_notification(sender, event, recipients, method, comment, client_id).map(Some)
+        required_notification(sender, event, recipients, method, comment).map(Some)
     }
 }
 
@@ -29,7 +28,6 @@ pub(super) fn required_notification(
     recipients: &[CalendarAttendee],
     method: CalendarMessageMethod,
     comment: &str,
-    client_id: &str,
 ) -> Result<Vec<u8>> {
     calendar_mime::build(
         sender,
@@ -38,7 +36,6 @@ pub(super) fn required_notification(
         event.all_day_dates,
         method,
         comment,
-        client_id,
     )
 }
 

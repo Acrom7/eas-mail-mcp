@@ -1,7 +1,7 @@
 use chrono::{TimeZone as _, Utc};
 use eas_mail_protocol::protocol::{
     build_calendar_add, build_calendar_change, build_calendar_delete, build_meeting_response,
-    parse_calendar_mutation_sync, parse_meeting_response,
+    build_meeting_response_long_id, parse_calendar_mutation_sync, parse_meeting_response,
 };
 use eas_mail_protocol::wbxml::{Element, decode, encode};
 use eas_mail_protocol::{CalendarApplication, CalendarAttendee, EasError, MeetingResponseChoice};
@@ -37,6 +37,14 @@ fn calendar_add_and_change_emit_complete_non_recurring_items() -> anyhow::Result
         assert_eq!(text(attendee, "Calendar", "Name").as_deref(), Some(""));
         assert_eq!(text(attendee, "Calendar", "AttendeeType").as_deref(), Some("2"));
     }
+
+    let long_id = required_root(&build_meeting_response_long_id(
+        "opaque-search-result",
+        MeetingResponseChoice::Accept,
+    )?)?;
+    assert_eq!(text(&long_id, "Search", "LongId").as_deref(), Some("opaque-search-result"));
+    assert!(long_id.descendant("MeetingResponse", "CollectionId").is_none());
+    assert!(long_id.descendant("MeetingResponse", "RequestId").is_none());
     Ok(())
 }
 
@@ -93,6 +101,7 @@ fn calendar_mutation_builders_reject_incomplete_sources() -> anyhow::Result<()> 
     assert!(build_calendar_change("calendar", "1", "", &item).is_err());
     assert!(build_calendar_delete("calendar", "1", "").is_err());
     assert!(build_meeting_response("", "request", MeetingResponseChoice::Accept).is_err());
+    assert!(build_meeting_response_long_id("", MeetingResponseChoice::Accept).is_err());
     assert!(parse_calendar_mutation_sync(&[]).is_err());
     assert!(parse_meeting_response(&[]).is_err());
     Ok(())

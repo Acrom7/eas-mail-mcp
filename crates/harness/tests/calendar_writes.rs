@@ -3,9 +3,9 @@ use std::sync::Arc;
 use eas_mail_mcp::backend::AccountBackend;
 use eas_mail_mcp::{
     CalendarAttendeeInput, CalendarAttendeeRole, CalendarBusyStatus, CalendarCancelInput,
-    CalendarCreateInput, CalendarDeleteInput, CalendarOperationState, CalendarRespondInput,
-    CalendarResponseChoice, CalendarScheduleInput, CalendarSearchInput, CalendarUpdateInput,
-    ErrorCode, OperationJournal, OperationStatus, Runtime,
+    CalendarCreateInput, CalendarDeleteInput, CalendarMailKind, CalendarOperationState,
+    CalendarRespondInput, CalendarResponseChoice, CalendarScheduleInput, CalendarSearchInput,
+    CalendarUpdateInput, ErrorCode, MailSearchInput, OperationJournal, OperationStatus, Runtime,
 };
 use eas_mail_mcp_harness::{FakeBackend, FixedClock, MemoryJournal, SequenceIds};
 
@@ -115,6 +115,92 @@ async fn completed_update_replays_after_reference_invalidation_and_detects_confl
         runtime.calendar_update(changed).await.error.map(|error| error.code),
         Some(ErrorCode::IdempotencyConflict)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn meeting_request_mail_ref_responds_through_search_long_id() -> anyhow::Result<()> {
+    let backend = Arc::new(FakeBackend::new("work"));
+    let (runtime, _directory, journal) = make_runtime(backend.clone())?;
+    let summary = runtime
+        .mail_search(MailSearchInput {
+            query: "meeting-request".into(),
+            account_ids: Some(vec!["work".into()]),
+            cursor: None,
+            limit: Some(1),
+        })
+        .await
+        .data
+        .and_then(|page| page.items.into_iter().next())
+        .ok_or_else(|| anyhow::anyhow!("meeting request mail is missing"))?;
+    assert_eq!(summary.calendar_message, Some(CalendarMailKind::Request));
+    assert!(summary.can_respond);
+
+    let input = CalendarRespondInput {
+        event_ref: summary.mail_ref,
+        response: CalendarResponseChoice::Accept,
+        comment: "Accepted from Inbox".into(),
+        idempotency_key: uuid(11),
+    };
+    let result = runtime
+        .calendar_respond(input.clone())
+        .await
+        .data
+        .ok_or_else(|| anyhow::anyhow!("meeting response result is missing"))?;
+    assert_eq!(result.status, CalendarOperationState::Succeeded);
+    assert_eq!(result.completed_steps, ["meeting_response", "reply_notification"]);
+    assert!(result.event_ref.is_none());
+    assert_eq!(backend.operations()?, ["calendar_respond_request", "calendar_send"]);
+    assert_eq!(
+        journal.lookup(&uuid(11))?.map(|value| value.status),
+        Some(OperationStatus::Succeeded)
+    );
+    assert_eq!(
+        runtime.calendar_respond(input.clone()).await.data.map(|value| value.status),
+        Some(CalendarOperationState::Succeeded)
+    );
+    assert_eq!(backend.operations()?, ["calendar_respond_request", "calendar_send"]);
+
+    let expired = CalendarRespondInput { idempotency_key: uuid(13), ..input };
+    assert_eq!(
+        runtime.calendar_respond(expired).await.error.map(|error| error.code),
+        Some(ErrorCode::ReferenceExpired)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn ordinary_mail_ref_is_rejected_before_journal_or_calendar_mutation() -> anyhow::Result<()> {
+    let backend = Arc::new(FakeBackend::new("work"));
+    let (runtime, _directory, journal) = make_runtime(backend.clone())?;
+    let summary = runtime
+        .mail_search(MailSearchInput {
+            query: "ordinary".into(),
+            account_ids: Some(vec!["work".into()]),
+            cursor: None,
+            limit: Some(1),
+        })
+        .await
+        .data
+        .and_then(|page| page.items.into_iter().next())
+        .ok_or_else(|| anyhow::anyhow!("ordinary mail is missing"))?;
+    let operation_id = uuid(12);
+
+    assert_eq!(
+        runtime
+            .calendar_respond(CalendarRespondInput {
+                event_ref: summary.mail_ref,
+                response: CalendarResponseChoice::Accept,
+                comment: String::new(),
+                idempotency_key: operation_id.clone(),
+            })
+            .await
+            .error
+            .map(|error| error.code),
+        Some(ErrorCode::ValidationFailed)
+    );
+    assert!(journal.lookup(&operation_id)?.is_none());
+    assert!(backend.operations()?.is_empty());
     Ok(())
 }
 

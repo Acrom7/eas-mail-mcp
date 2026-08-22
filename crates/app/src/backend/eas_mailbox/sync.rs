@@ -233,6 +233,8 @@ fn patch_mail(target: &mut MailFields, patch: MailFields) {
     apply(&mut target.is_read, patch.is_read);
     apply(&mut target.importance, patch.importance);
     apply(&mut target.attachments, patch.attachments);
+    apply(&mut target.message_class, patch.message_class);
+    apply(&mut target.meeting_request, patch.meeting_request);
 }
 
 fn apply<T>(target: &mut Patch<T>, patch: Patch<T>) {

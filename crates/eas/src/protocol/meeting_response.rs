@@ -23,6 +23,24 @@ pub fn build_meeting_response(
     encode(&root)
 }
 
+/// Builds one EAS MeetingResponse request for a mailbox Search result.
+pub fn build_meeting_response_long_id(
+    long_id: &str,
+    response: MeetingResponseChoice,
+) -> Result<Vec<u8>> {
+    if long_id.is_empty() || long_id.len() > 256 {
+        return Err(EasError::InvalidConfiguration(
+            "MeetingResponse LongId must contain 1-256 bytes".into(),
+        ));
+    }
+    let mut root = element("MeetingResponse", "MeetingResponse");
+    let mut request = element("MeetingResponse", "Request");
+    push_text(&mut request, "MeetingResponse", "UserResponse", response.code().to_string());
+    push_text(&mut request, "Search", "LongId", long_id);
+    root.push(request);
+    encode(&root)
+}
+
 /// Parses one EAS MeetingResponse result.
 pub fn parse_meeting_response(data: &[u8]) -> Result<MeetingResponseResult> {
     let root = decode(data)?

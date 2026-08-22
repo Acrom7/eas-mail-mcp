@@ -2,6 +2,7 @@ mod calendar;
 mod calendar_write;
 mod calendar_write_model;
 mod content;
+mod meeting_response;
 mod mutations;
 mod session;
 mod sync;

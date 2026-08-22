@@ -67,6 +67,39 @@ pub struct Attachment {
     pub content_id: String,
 }
 
+/// Meeting request metadata embedded in an EAS email item.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MeetingRequest {
+    /// Whether the meeting covers whole local dates.
+    pub all_day: bool,
+    /// Organizer-supplied creation or update timestamp.
+    pub dt_stamp: Option<DateTime<Utc>>,
+    /// UTC meeting start.
+    pub starts_at: Option<DateTime<Utc>>,
+    /// UTC exclusive meeting end.
+    pub ends_at: Option<DateTime<Utc>>,
+    /// EAS instance type; only zero is non-recurring.
+    pub instance_type: u8,
+    /// Display location.
+    pub location: String,
+    /// Organizer address header.
+    pub organizer: String,
+    /// Optional reminder in minutes.
+    pub reminder_minutes: Option<u32>,
+    /// Whether the organizer requests a response.
+    pub response_requested: bool,
+    /// EAS free/busy status.
+    pub busy_status: u8,
+    /// Base64-encoded EAS timezone structure.
+    pub time_zone: String,
+    /// Base64-encoded Exchange global object identifier.
+    pub global_object_id: String,
+    /// Calendar UID supplied directly by newer protocol versions.
+    pub uid: String,
+    /// EAS 14.1 meeting message type.
+    pub message_type: u8,
+}
+
 /// Mail fields with exact partial-update semantics.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MailFields {
@@ -90,6 +123,10 @@ pub struct MailFields {
     pub importance: Patch<u8>,
     /// Attachment list.
     pub attachments: Patch<Vec<Attachment>>,
+    /// Exchange message class hint.
+    pub message_class: Patch<String>,
+    /// Meeting request metadata when this mail is actionable Calendar content.
+    pub meeting_request: Patch<MeetingRequest>,
 }
 
 /// Calendar fields with exact partial-update semantics.

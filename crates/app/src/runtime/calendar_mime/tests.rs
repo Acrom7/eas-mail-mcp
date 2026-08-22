@@ -75,13 +75,15 @@ fn mime_contains_plain_and_calendar_parts_without_header_injection() -> anyhow::
         None,
         CalendarMessageMethod::Request,
         "Visible comment",
-        "client-1",
     )?;
     let output = String::from_utf8(bytes)?;
     assert!(output.contains("Subject: Planning"));
     assert!(output.contains("Content-Type: multipart/alternative"));
     assert!(output.contains("text/calendar"));
     assert!(output.contains("method=REQUEST") || output.contains("method=\"REQUEST\""));
+    assert!(output.contains("Content-Class: urn:content-classes:calendarmessage"));
+    assert!(output.contains("Content-Transfer-Encoding: base64"));
+    assert!(!output.contains("@eas-mail-mcp.local>"));
     assert!(output.contains("Visible comment"));
 
     let mut bad_subject = item.clone();
@@ -94,7 +96,6 @@ fn mime_contains_plain_and_calendar_parts_without_header_injection() -> anyhow::
             None,
             CalendarMessageMethod::Request,
             "",
-            "client-2",
         )
         .is_err()
     );
@@ -109,7 +110,6 @@ fn mime_contains_plain_and_calendar_parts_without_header_injection() -> anyhow::
             None,
             CalendarMessageMethod::Request,
             "",
-            "client-3",
         )
         .is_err()
     );

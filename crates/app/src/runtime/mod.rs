@@ -1,6 +1,8 @@
 mod calendar;
 mod calendar_mime;
 mod calendar_prepare;
+mod calendar_respond;
+mod calendar_response_prepare;
 mod calendar_schedule;
 mod calendar_write_result;
 mod calendar_write_support;

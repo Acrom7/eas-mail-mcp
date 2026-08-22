@@ -4,8 +4,11 @@ use icalendar::{
     Attendee, CUType, Calendar, Component as _, Event, EventLike as _, PartStat, Property, Role,
 };
 use mail_builder::MessageBuilder;
+use mail_builder::encoders::base64::base64_encode_mime;
 use mail_builder::headers::address::Address;
 use mail_builder::headers::content_type::ContentType;
+use mail_builder::headers::raw::Raw;
+use mail_builder::headers::text::Text;
 use mail_builder::mime::MimePart;
 
 use crate::model::CalendarResponseChoice;
@@ -25,7 +28,6 @@ pub(super) fn build(
     all_day_dates: Option<(NaiveDate, NaiveDate)>,
     method: CalendarMessageMethod,
     comment: &str,
-    client_id: &str,
 ) -> Result<Vec<u8>> {
     validate_mailbox(sender)?;
     if recipients.is_empty() {
@@ -38,12 +40,17 @@ pub(super) fn build(
     validate_header_text(&item.subject)?;
     let method_name = method_name(method);
     let calendar = calendar(sender, recipients, item, all_day_dates, method)?;
+    let mut encoded_calendar = Vec::new();
+    base64_encode_mime(calendar.as_bytes(), &mut encoded_calendar, false).map_err(|_| {
+        AppError::new(ErrorCode::ProtocolError, "cannot encode calendar MIME message")
+    })?;
     let calendar_part = MimePart::new(
         ContentType::new("text/calendar")
             .attribute("charset", "utf-8")
             .attribute("method", method_name),
-        calendar,
-    );
+        encoded_calendar,
+    )
+    .transfer_encoding("base64");
     let plain_body = if comment.is_empty() { item.body.clone() } else { comment.to_owned() };
     let body = MimePart::new(
         "multipart/alternative",
@@ -62,7 +69,8 @@ pub(super) fn build(
         .from(sender.to_owned())
         .to(Address::new_list(addresses))
         .subject(message_subject(method, &item.subject))
-        .message_id(format!("<{client_id}@eas-mail-mcp.local>"))
+        .header("Thread-Topic", Text::new(item.subject.clone()))
+        .header("Content-Class", Raw::new("urn:content-classes:calendarmessage"))
         .body(body)
         .write_to_vec()
         .map_err(|_| AppError::new(ErrorCode::ProtocolError, "cannot build calendar MIME message"))
@@ -120,9 +128,11 @@ fn calendar(
             }
         }
     }
-    if matches!(method, CalendarMessageMethod::Cancel) {
-        event.status(icalendar::EventStatus::Cancelled);
-    }
+    event.status(if matches!(method, CalendarMessageMethod::Cancel) {
+        icalendar::EventStatus::Cancelled
+    } else {
+        icalendar::EventStatus::Confirmed
+    });
     let mut calendar = Calendar::empty();
     calendar
         .append_property(Property::new("PRODID", "-//EAS Mail MCP//EN"))

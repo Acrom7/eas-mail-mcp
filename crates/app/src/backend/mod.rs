@@ -86,6 +86,13 @@ pub trait AccountBackend: Send + Sync {
         response: eas_mail_protocol::MeetingResponseChoice,
     ) -> Result<Option<String>>;
 
+    /// Applies MeetingResponse to one Inbox meeting request.
+    async fn respond_meeting_request(
+        &self,
+        source: &MailSource,
+        response: eas_mail_protocol::MeetingResponseChoice,
+    ) -> Result<Option<String>>;
+
     /// Sends a prebuilt calendar MIME message through EAS SendMail.
     async fn send_calendar_message(&self, client_id: &str, mime: Vec<u8>) -> Result<()>;
 

@@ -337,6 +337,14 @@ impl AccountBackend for EasMailbox {
         self.respond_event(source, response).await
     }
 
+    async fn respond_meeting_request(
+        &self,
+        source: &MailSource,
+        response: eas_mail_protocol::MeetingResponseChoice,
+    ) -> Result<Option<String>> {
+        self.respond_request(source, response).await
+    }
+
     async fn send_calendar_message(&self, client_id: &str, mime: Vec<u8>) -> Result<()> {
         self.send_calendar_mime(client_id, mime).await
     }

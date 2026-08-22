@@ -77,7 +77,9 @@ sequenceDiagram
 `sync_now` can refresh every selected mail collection. Lists return metadata and a
 short plain-text preview; `mail_get` fetches the full body only when requested,
 and attachments require separate list and download calls. `mail_search` always
-searches Exchange instead of a local index.
+searches Exchange instead of a local index. Meeting mail is classified with
+`calendar_message`; an actionable request or full update also exposes
+`can_respond=true` and its `mail_ref` can be passed to `calendar_respond`.
 
 The first request in a new process is a cold synchronization. Later requests in
 the same process can reuse FolderSync and collection SyncKeys, so they usually
@@ -106,10 +108,13 @@ attendees, recurrence, and exceptions, only when requested.
 Calendar writes use that same bounded reference path. Personal events are
 created, updated, or deleted with Calendar Sync mutations. Meetings additionally
 send standards-based MIME/iCalendar `REQUEST`, `CANCEL`, or `REPLY` messages;
-received invitations use EAS `MeetingResponse`. Recurring series and individual
-occurrences remain read-only. Calendar Sync is initialized without downloading
-events and is used as a metadata-only UID fallback only when Exchange does not
-return mutable item IDs.
+received invitations use EAS `MeetingResponse`. If Exchange does not
+automatically create a tentative Calendar item for an external invitation, the
+request is found in Inbox and answered through its opaque Search `LongId`; no
+mailbox database or full Calendar download is needed. Recurring series and
+individual occurrences remain read-only. Calendar Sync is initialized without
+downloading events and is used as a metadata-only UID fallback only when
+Exchange does not return mutable item IDs.
 
 ### State and storage
 
@@ -185,6 +190,9 @@ Write tools:
 - `mail_mark_read`, `mail_send`, `mail_reply`, `mail_forward`
 - `calendar_create`, `calendar_update`, `calendar_delete`
 - `calendar_cancel`, `calendar_respond`
+
+`calendar_respond` accepts either an attendee `event_ref` from Calendar Search or
+an actionable `mail_ref` returned by `mail_list`, `mail_search`, or `mail_get`.
 
 Writes are disabled per account by default. The same account switch controls
 mail and calendar mutations. Every write requires a UUID

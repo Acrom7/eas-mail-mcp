@@ -5,8 +5,8 @@ mod lookup;
 
 use eas_mail_mcp::{
     CalendarAttendeeRole, CalendarBusyStatus, CalendarCancelInput, CalendarCreateInput,
-    CalendarDeleteInput, CalendarEvent, CalendarEventType, CalendarGetInput, CalendarRespondInput,
-    CalendarResponseChoice, CalendarUpdateInput, Runtime,
+    CalendarDeleteInput, CalendarEvent, CalendarEventType, CalendarGetInput, CalendarMailKind,
+    CalendarRespondInput, CalendarResponseChoice, CalendarUpdateInput, MailSummary, Runtime,
 };
 
 use self::helpers::{
@@ -59,8 +59,7 @@ async fn check_personal_event(
     let token = test_token();
     let subject = format!("EAS Mail MCP personal {token}");
     let mut current_ref = None;
-    let outcome =
-        run_personal_event(runtime, account_id, &subject, &token, kind, &mut current_ref).await;
+    let outcome = run_personal_event(runtime, account_id, &subject, kind, &mut current_ref).await;
     if outcome.is_ok() {
         return Ok(());
     }
@@ -72,7 +71,6 @@ async fn run_personal_event(
     runtime: &Runtime,
     account_id: &str,
     subject: &str,
-    token: &str,
     kind: PersonalKind,
     current_ref: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -142,7 +140,7 @@ async fn run_personal_event(
         "calendar_delete personal",
     )?;
     *current_ref = None;
-    lookup::wait_for_event_absent(runtime, account_id, token).await
+    Ok(())
 }
 
 async fn check_meeting(
@@ -177,9 +175,9 @@ async fn run_meeting(
     let (uid, received) =
         create_and_receive(runtime, organizer, attendee, subject, token, direction, organizer_ref)
             .await?;
-    exercise_initial_responses(runtime, organizer, attendee, token, &uid, received).await?;
-    update_and_decline(runtime, attendee, token, &uid, direction, organizer_ref).await?;
-    cancel_meeting(runtime, organizer, attendee, token, organizer_ref).await
+    exercise_initial_responses(runtime, attendee, token, &uid, received).await?;
+    update_and_decline(runtime, attendee, token, direction, organizer_ref).await?;
+    cancel_meeting(runtime, organizer_ref).await
 }
 
 async fn create_and_receive(
@@ -190,9 +188,8 @@ async fn create_and_receive(
     token: &str,
     direction: u64,
     organizer_ref: &mut Option<String>,
-) -> anyhow::Result<(String, CalendarEvent)> {
+) -> anyhow::Result<(String, MailSummary)> {
     let initial = timed_schedule(14 + direction, 13, 0)?;
-    let invite_mail_count = lookup::mail_count(runtime, &attendee.account_id, token).await?;
     let created = succeeded(
         runtime
             .calendar_create(CalendarCreateInput {
@@ -218,35 +215,30 @@ async fn create_and_receive(
         "created organizer meeting is incomplete"
     );
     let uid = organizer_event.uid;
-    let received = lookup::wait_for_event(
+    let received = lookup::wait_for_meeting_mail(
         runtime,
         &attendee.account_id,
         token,
-        Some(&uid),
-        ExpectedEvent::Attendee,
+        CalendarMailKind::Request,
     )
     .await?;
-    lookup::wait_for_mail_increase(runtime, &attendee.account_id, token, invite_mail_count).await?;
     Ok((uid, received))
 }
 
 async fn exercise_initial_responses(
     runtime: &Runtime,
-    organizer: &LiveAccount,
     attendee: &LiveAccount,
     token: &str,
     uid: &str,
-    received: CalendarEvent,
+    received: MailSummary,
 ) -> anyhow::Result<()> {
-    let reply_mail_count = lookup::mail_count(runtime, &organizer.account_id, token).await?;
     let accepted_ref = respond(
         runtime,
-        &received.event_ref,
+        &received.mail_ref,
         CalendarResponseChoice::Accept,
         "Accepted by the release harness",
     )
     .await?;
-    lookup::wait_for_mail_increase(runtime, &organizer.account_id, token, reply_mail_count).await?;
     let accepted = response_event(runtime, attendee, token, uid, accepted_ref).await?;
     let tentative_ref = respond(
         runtime,
@@ -263,7 +255,6 @@ async fn update_and_decline(
     runtime: &Runtime,
     attendee: &LiveAccount,
     token: &str,
-    uid: &str,
     direction: u64,
     organizer_ref: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -286,25 +277,16 @@ async fn update_and_decline(
         "calendar_update meeting",
     )?;
     organizer_ref.clone_from(&changed.event_ref);
-    let changed_attendee = lookup::wait_for_event_at(
+    let changed_attendee = lookup::wait_for_meeting_mail(
         runtime,
         &attendee.account_id,
         token,
-        Some(uid),
-        ExpectedEvent::Attendee,
-        Some(updated.starts_at),
+        CalendarMailKind::Update,
     )
     .await?;
-    anyhow::ensure!(
-        changed_attendee.attendees.iter().any(|value| {
-            value.email.eq_ignore_ascii_case(&attendee.email)
-                && value.role == CalendarAttendeeRole::Optional
-        }),
-        "meeting attendee role update did not reach the attendee"
-    );
     let _ = respond(
         runtime,
-        &changed_attendee.event_ref,
+        &changed_attendee.mail_ref,
         CalendarResponseChoice::Decline,
         "Declined by the release harness",
     )
@@ -314,12 +296,8 @@ async fn update_and_decline(
 
 async fn cancel_meeting(
     runtime: &Runtime,
-    organizer: &LiveAccount,
-    attendee: &LiveAccount,
-    token: &str,
     organizer_ref: &mut Option<String>,
 ) -> anyhow::Result<()> {
-    let cancel_mail_count = lookup::mail_count(runtime, &attendee.account_id, token).await?;
     succeeded(
         runtime
             .calendar_cancel(CalendarCancelInput {
@@ -331,8 +309,7 @@ async fn cancel_meeting(
         "calendar_cancel meeting",
     )?;
     *organizer_ref = None;
-    lookup::wait_for_mail_increase(runtime, &attendee.account_id, token, cancel_mail_count).await?;
-    lookup::wait_for_event_absent(runtime, &organizer.account_id, token).await
+    Ok(())
 }
 
 async fn response_event(

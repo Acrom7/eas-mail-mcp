@@ -57,6 +57,17 @@ fn search_parser_handles_empty_errors_and_complete_mail() -> eas_mail_protocol::
     assert_eq!(result.fields.body_truncated, Patch::Value(true));
     assert_eq!(result.fields.is_read, Patch::Value(true));
     assert_eq!(result.fields.importance, Patch::Value(2));
+    assert_eq!(result.fields.message_class, Patch::Value("IPM.Schedule.Meeting.Request".into()));
+    let Patch::Value(meeting) = &result.fields.meeting_request else {
+        return Err(EasError::Protocol("meeting request was not parsed".into()));
+    };
+    assert_eq!(meeting.organizer, "Organizer <organizer@example.com>");
+    assert_eq!(meeting.message_type, 1);
+    assert!(meeting.response_requested);
+    assert_eq!(
+        meeting.starts_at.map(|value| value.to_rfc3339()).as_deref(),
+        Some("2026-08-24T09:00:00+00:00")
+    );
     let Patch::Value(attachments) = &result.fields.attachments else {
         return Err(EasError::Protocol("attachments were not parsed".into()));
     };
@@ -152,6 +163,26 @@ fn mail_properties(subject: &str, body: &str) -> Element {
     properties.push(Element::text("Email", "DateReceived", "20260102T030405Z"));
     properties.push(Element::text("Email", "Read", "1"));
     properties.push(Element::text("Email", "Importance", "2"));
+    properties.push(Element::text("Email", "MessageClass", "IPM.Schedule.Meeting.Request"));
+    let mut meeting = Element::new("Email", "MeetingRequest");
+    meeting.push(Element::text("Email", "AllDayEvent", "0"));
+    meeting.push(Element::text("Email", "DtStamp", "20260822T100000Z"));
+    meeting.push(Element::text("Email", "StartTime", "20260824T090000Z"));
+    meeting.push(Element::text("Email", "EndTime", "20260824T100000Z"));
+    meeting.push(Element::text("Email", "InstanceType", "0"));
+    meeting.push(Element::text("Email", "Location", "Room 1"));
+    meeting.push(Element::text("Email", "Organizer", "Organizer <organizer@example.com>"));
+    meeting.push(Element::text("Email", "Reminder", "15"));
+    meeting.push(Element::text("Email", "ResponseRequested", "1"));
+    meeting.push(Element::text("Email", "BusyStatus", "2"));
+    meeting.push(Element::text("Email", "TimeZone", "AAAA"));
+    meeting.push(Element::text(
+        "Email",
+        "GlobalObjId",
+        "BAAAAIIA4AB0xbcQGoLgCAAAAAAAAAAAAAAAAAAAAAAAAAAAMwAAAHZDYWwtVWlkAQAAAHs4MTQxMkQzQy0yQTI0LTRFOUQtQjIwRS0xMUY3QkJFOTI3OTl9AA==",
+    ));
+    meeting.push(Element::text("Email2", "MeetingMessageType", "1"));
+    properties.push(meeting);
     let mut body_element = Element::new("AirSyncBase", "Body");
     body_element.push(Element::text("AirSyncBase", "Data", body));
     body_element.push(Element::text("AirSyncBase", "Truncated", "1"));

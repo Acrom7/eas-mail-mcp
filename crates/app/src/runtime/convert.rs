@@ -3,7 +3,8 @@ use eas_mail_protocol::Patch;
 use crate::backend::{BackendEvent, BackendMail};
 use crate::model::{
     CalendarAttendeeRole, CalendarAttendeeStatus, CalendarAttendeeView, CalendarBusyStatus,
-    CalendarEvent, CalendarEventSummary, CalendarEventType, MailDetail, MailSummary,
+    CalendarEvent, CalendarEventSummary, CalendarEventType, CalendarMailKind, MailDetail,
+    MailSummary,
 };
 use crate::sanitize::{plain_text, truncate};
 use crate::{Result, Runtime};
@@ -149,6 +150,7 @@ pub(super) fn calendar_event_summary(
 
 fn mail_summary(mail_ref: String, mail: &BackendMail) -> MailSummary {
     let preview = truncate(&plain_text(string(&mail.fields.body)), 500).0;
+    let (calendar_message, can_respond) = calendar_mail(&mail.fields);
     MailSummary {
         mail_ref,
         account_id: mail.account_id.clone(),
@@ -160,7 +162,39 @@ fn mail_summary(mail_ref: String, mail: &BackendMail) -> MailSummary {
         preview,
         is_read: boolean(&mail.fields.is_read),
         has_attachments: !list(&mail.fields.attachments).is_empty(),
+        calendar_message,
+        can_respond,
         untrusted_external_content: true,
+    }
+}
+
+fn calendar_mail(fields: &eas_mail_protocol::MailFields) -> (Option<CalendarMailKind>, bool) {
+    let class = string(&fields.message_class).to_ascii_lowercase();
+    let meeting = match &fields.meeting_request {
+        Patch::Value(value) => Some(value),
+        Patch::Missing => None,
+    };
+    if class.contains(".meeting.request") {
+        let message_type = meeting.map_or(0, |value| value.message_type);
+        let kind = match message_type {
+            1 => CalendarMailKind::Request,
+            2 | 3 => CalendarMailKind::Update,
+            _ => CalendarMailKind::Other,
+        };
+        let can_respond = meeting.is_some_and(|value| {
+            matches!(value.message_type, 1 | 2)
+                && value.instance_type == 0
+                && value.response_requested
+        });
+        (Some(kind), can_respond)
+    } else if class.contains(".meeting.canceled") {
+        (Some(CalendarMailKind::Cancellation), false)
+    } else if class.contains(".meeting.resp") {
+        (Some(CalendarMailKind::Response), false)
+    } else if meeting.is_some() {
+        (Some(CalendarMailKind::Other), false)
+    } else {
+        (None, false)
     }
 }
 
