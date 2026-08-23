@@ -1,192 +1,131 @@
 # EAS Mail MCP
 
-![EAS Mail MCP connects mail and calendar data to local AI tools](docs/assets/readme-hero.png)
+![EAS Mail MCP connects Exchange mail and calendars to local AI tools](docs/assets/readme-hero.png)
 
-`eas-mail-mcp` is a local Rust MCP server for Exchange ActiveSync 14.1. It gives
-supported AI clients structured mail, availability, and calendar lifecycle
-tools without a daemon, GUI, mailbox database, or hosted intermediary service.
+`eas-mail-mcp` is a local, native MCP server that gives AI agents structured
+access to mail and calendars on Exchange ActiveSync 14.1 servers. It is designed
+for managed or on-premises Exchange environments where EAS is available and a
+hosted connector, Microsoft Graph, or a local mailbox database is undesirable.
 
-Public binaries contain no mail server, domain, realm, certificate, account, or
-password. A user imports or creates a validated local endpoint profile during
-`setup`; credentials are stored separately in macOS Keychain.
+The public npm packages contain no operator server, domain, realm, certificate,
+account, or password. Endpoint profiles are created or imported locally, and
+credentials stay in macOS Keychain.
+
+```bash
+npm install -g eas-mail-mcp
+eas-mail-mcp setup
+```
+
+[Setup guide](docs/getting-started.md) | [Инструкция на русском](docs/installation.ru.md) | [Security](SECURITY.md)
+
+## What it does
+
+The server exposes bounded, typed tools instead of handing an agent a raw
+mailbox export.
+
+| Area | Capabilities |
+| --- | --- |
+| Mail | List folders and recent messages, search Exchange, fetch one body or attachment on demand |
+| Mail actions | Mark as read, send, reply, and forward with idempotent write protection |
+| Personal agenda | Return a compact, body-free schedule for a date range, including expanded recurrences and exceptions |
+| Availability | Resolve people, read 30-minute free/busy states, and calculate common working-hour slots in Rust |
+| Calendar details | Search events and fetch one selected event with its body, attendees, recurrence, and exceptions |
+| Calendar actions | Create, update, delete, or cancel events and respond to meeting invitations |
+| Multiple accounts | Work with several independently configured EAS profiles and return partial results with warnings |
+
+Typical requests include:
+
+- "Show important unread mail from today."
+- "Find a one-hour slot that is free for these participants next week."
+- "Show my agenda for tomorrow without meeting bodies."
+- "Draft a reply, show it to me, and send it only after I approve the text."
+
+The MCP executes write tools immediately when an agent calls them. Writes are
+disabled per account by default, so review and approval behavior should also be
+defined in the AI client's operating instructions.
+
+## Why this design
+
+This project is not a universal replacement for every mail integration. Its
+advantages are specific to local EAS deployments:
+
+| Compared with | What this project provides | Trade-off |
+| --- | --- | --- |
+| Hosted mail MCP or relay | Direct local connection from the user's Mac to Exchange; no additional service receives mailbox data | The AI client still receives requested content and must be approved for corporate data |
+| IMAP/SMTP integration | Mail, directory resolution, free/busy, calendar details, and meeting lifecycle through one Exchange protocol | Requires an EAS 14.1 endpoint with Basic Auth enabled |
+| Microsoft Graph integration | No Entra app registration, OAuth flow, or cloud tenant dependency | Graph is the better fit when modern OAuth and Graph are available or required |
+| Local mailbox index | No persistent mailbox database, lower data-at-rest exposure, and fresh server-side search | No offline search; cold requests depend on Exchange and network latency |
+| Raw EAS scripts | Stable MCP schemas, strict TLS, WBXML validation, bounded responses, sanitization, and idempotent writes | The supported EAS surface is intentionally narrower than a full mail client |
+
+The native Rust runtime has no GUI, daemon, hosted component, or Node.js process
+in the active MCP connection. As a reference, the `0.2.0` acceptance run on one
+Apple Silicon Mac measured 9.1 ms startup p95, 15.4 MiB idle RSS per process,
+and a 7.9 MB stripped binary. These are environment-specific measurements, not
+cross-machine guarantees.
 
 ## How it works
 
-The simplest mental model is a local, typed API adapter. An AI client speaks
-MCP, while Exchange speaks EAS. The binary translates between the two without
-running a hosted service of its own.
+Each MCP client starts `eas-mail-mcp serve` over stdio. The process translates
+typed MCP calls into EAS commands, validates WBXML responses, performs calendar
+and slot calculations, and returns compact structured results.
 
 ```mermaid
 flowchart LR
     User["User"] --> Client["Codex / Claude Code / OpenCode"]
-    Client -->|"MCP JSON-RPC over stdin/stdout"| App["eas-mail-mcp"]
-    App -->|"EAS 14.1 over HTTPS"| Exchange["Managed Exchange server"]
-    App --> Keychain["macOS Keychain"]
-    App --> Config["Non-secret account config"]
-    App --> Journal["Idempotency journal"]
-    App --> Attachments["Temporary attachment cache"]
+    Client -->|"MCP over stdio"| MCP["eas-mail-mcp<br/>native Rust process"]
+    MCP -->|"EAS 14.1 over HTTPS"| Exchange["Exchange server"]
+    MCP --> Keychain["macOS Keychain"]
+    MCP --> Config["Local profiles and account config"]
+    MCP --> Journal["Content-free write journal"]
 ```
 
-Each MCP client launches its own `eas-mail-mcp serve` process. There is no
-daemon and no mailbox database. The process stays alive for the MCP session,
-keeps synchronization state in RAM, and exits when that stdio connection
-closes. A client may keep several task sessions open at once, so several server
-processes can belong to one client application. The idle RSS target of 20 MiB
-is per process; aggregate memory scales with the number of active sessions.
-Changing or removing client configuration does not close sessions that are
-already running, so restart the client after reconfiguration.
+There is one lightweight process per active MCP connection. Process-local mail
+state, cursors, and opaque references live in RAM and disappear when the client
+closes the connection. Full message bodies and attachments are fetched only on
+request. SQLite stores only idempotency metadata for writes, not mailbox or
+calendar content.
 
-### Terms for application developers
+Calendar availability never exposes another person's meeting subjects or
+bodies. `calendar_find_slots` performs participant resolution, timezone and DST
+handling, working-hour filtering, and interval intersection inside the Rust
+process. A personal agenda is also filtered and reduced before it reaches the
+agent.
 
-| Term | Practical mental model |
-| --- | --- |
-| MCP tool | A typed endpoint such as `mail_list` or `mail_send` |
-| EAS | The Exchange API used for mail, directory availability, and own-calendar lookup |
-| WBXML | A compact binary representation of the XML messages used by EAS |
-| SyncKey | A server-issued version cursor: "changes since this state" |
-| `mail_ref` / `event_ref` | A short-lived process-local handle, not a database ID |
-| Cursor | A pointer into one immutable in-memory result snapshot |
+For the protocol and module-level explanation, see
+[Architecture](docs/architecture.md).
 
-### Example read path
+## Quick start
 
-For a request such as "show my latest mail", the client calls `mail_list`:
+Requirements:
 
-```mermaid
-sequenceDiagram
-    participant Client as MCP client
-    participant App as eas-mail-mcp
-    participant Keychain as macOS Keychain
-    participant Exchange as Exchange
+- macOS 14 or later on Apple Silicon or Intel;
+- Node.js 18 or later for npm installation and the administrative launcher;
+- an Exchange ActiveSync 14.1 endpoint using Basic Auth over TLS;
+- any required corporate network, VPN, and trusted CA configuration.
 
-    Client->>App: Start process
-    App->>Keychain: Load credentials and policy state
-    Client->>App: initialize with capabilities (name/version are diagnostics)
-    Client->>App: tools/call mail_list
-    App->>Exchange: OPTIONS once per process
-    opt No acknowledged policy is stored
-        App->>Exchange: Provision and acknowledge supported limits
-    end
-    App->>Exchange: FolderSync
-    App->>Exchange: Sync Inbox and Sent
-    Exchange-->>App: WBXML pages and new SyncKeys
-    App->>App: Decode, patch RAM state, sanitize content
-    App-->>Client: Structured data / error / warnings
+Install and run the interactive setup wizard:
+
+```bash
+npm install -g eas-mail-mcp@latest
+eas-mail-mcp setup
+eas-mail-mcp doctor
 ```
 
-`mail_list` refreshes Inbox and Sent unless explicit `folder_ids` are supplied.
-`sync_now` can refresh every selected mail collection. Lists return metadata and a
-short plain-text preview; `mail_get` fetches the full body only when requested,
-and attachments require separate list and download calls. `mail_search` always
-searches Exchange instead of a local index. Meeting mail is classified with
-`calendar_message`; an actionable request or full update also exposes
-`can_respond=true` and its `mail_ref` can be passed to `calendar_respond`.
+The wizard imports or creates an endpoint profile, verifies each account before
+saving its credentials, lets the user add more accounts, and configures detected
+Codex, Claude Code, or OpenCode installations with backups. Run `setup` again to
+repair accounts, update passwords, change write access, or manage clients.
 
-The first request in a new process is a cold synchronization. Later requests in
-the same process can reuse FolderSync and collection SyncKeys, so they usually
-transfer fewer records. Restarting the process intentionally discards that
-state.
-
-### Compact calendar path
-
-The calendar tools do not persist or expose a calendar database.
-`calendar_availability` sends supplied names or email addresses to EAS
-`ResolveRecipients + Availability` and returns only merged 30-minute free/busy
-states. It never returns subjects or bodies from another person's meetings.
-Ranges are limited to 31 days and requested from Exchange in chunks of at most
-seven days.
-
-`calendar_find_slots` performs timezone, DST, working-hours, tentative-policy,
-and participant intersection calculations inside the Rust process. It returns
-common windows instead of making the AI client parse a large event dump. The
-account owner is not added implicitly; include every participant explicitly.
-
-`calendar_search` supports two bounded modes. A non-empty `query` performs
-server-side EAS Search. Supplying `date_from`, inclusive `date_to`, and an IANA
-`time_zone` returns a compact agenda for at most 31 days; `query` is optional in
-that mode. Because EAS Search cannot filter Calendar items by event start time,
-the agenda mode performs a fresh metadata-only Calendar Sync, expands recurring
-occurrences and exceptions, filters and sorts them in Rust, and returns at most
-100 summaries. Bodies are not requested or returned. This can still transfer a
-wide metadata set from Exchange, but the AI client receives only the requested
-range. [EAS mailbox Search query syntax](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-ascmd/9b5b91d9-73d6-44ba-a91c-291eb0b419a2)
-
-Compact results carry a 15-minute `event_ref`; `calendar_get` uses
-ItemOperations to fetch exactly that event, including body, attendees,
-recurrence, and exceptions, only when requested.
-
-Calendar writes use that same bounded reference path. Personal events are
-created, updated, or deleted with Calendar Sync mutations. Meetings additionally
-send standards-based MIME/iCalendar `REQUEST`, `CANCEL`, or `REPLY` messages;
-received invitations use EAS `MeetingResponse`. If Exchange does not
-automatically create a tentative Calendar item for an external invitation, the
-request is found in Inbox and answered through its opaque Search `LongId`; no
-mailbox database or full Calendar download is needed. Recurring series and
-individual occurrences remain read-only. Calendar Sync is initialized without
-downloading events and is used as a metadata-only UID fallback only when
-Exchange does not return mutable item IDs.
-
-### State and storage
-
-| Location | Stored data |
-| --- | --- |
-| Installed binary | Generic EAS transport and MCP runtime; no endpoint data |
-| `profiles.toml` | Host, allowed email domains, login strategy, and TLS trust mode |
-| `config.toml` | Profile key, email, username, enabled state, write permission |
-| macOS Keychain | Password, Device ID, policy state, journal HMAC key |
-| Process RAM | Mail SyncKeys/data, short-lived search references, and cursors |
-| SQLite | Content-free idempotency metadata for write operations only |
-| Cache directory | Explicitly downloaded attachments, retained for up to 24 hours |
-
-RAM references and cursors expire after 15 minutes and cannot be shared between
-independent Codex, Claude Code, or OpenCode processes. A new list or search call
-creates a new immutable snapshot, capped at 100 returned records per page.
-
-### Write safety
-
-Mail and calendar writes are disabled per account by default. Once
-`write_enabled` is set,
-client name and version do not add another authorization gate. Every write
-requires a caller-provided UUID `idempotency_key`. Before contacting Exchange,
-the process records a payload HMAC and `pending` state in SQLite. Reusing the
-same UUID with different input is rejected.
-
-Calling a write tool executes it immediately after account, reference, payload,
-and idempotency validation. The server does not request a second confirmation or
-generate a separate preview. Agents should call a write tool only after an
-explicit user request to perform that mutation; asking to draft or review a
-message must not trigger the tool. Outgoing bodies are limited to 50,000 Unicode
-characters before any journal or network write.
-
-Read requests may retry transient network failures. Mutations are not
-blindly retried: if the connection fails after a request may have reached
-Exchange, the result is `OUTCOME_UNKNOWN` rather than a possible duplicate
-message or meeting. Multi-step calendar operations report confirmed steps and
-persist `partial` when the calendar item changed but a guaranteed-safe later
-notification failed. Generated client configuration does not add write-tool approval
-overrides; a possible client-level prompt is controlled entirely by that client.
-Neither client policy nor self-reported client identity is an authentication
-boundary. See [Security](SECURITY.md) for the full threat model.
-
-### Repository map
-
-- [`crates/app`](crates/app) contains the CLI, MCP tools, runtime, Keychain,
-  references, attachment cache, and idempotency journal.
-- [`crates/eas`](crates/eas) contains strict HTTPS transport, EAS commands,
-  protocol parsing, and the WBXML codec.
-- [`crates/profile`](crates/profile) validates portable runtime endpoint profiles.
-- [`crates/harness`](crates/harness) provides a scripted Exchange transport and
-  black-box stdio MCP tests.
-- [`xtask`](xtask) owns repeatable quality, security, profile, bundle, golden,
-  performance, and soak commands.
-
-Mail and calendar content is marked as `untrusted_external_content`. The MCP
-does not execute it, load remote images, or treat message text as instructions.
-Once a tool result is returned, however, the AI client may include it in model
-context, so deployment still requires an appropriate data-handling policy.
+See [Getting started](docs/getting-started.md) for the complete profile format,
+multi-account workflow, manual MCP configuration, storage locations, updates,
+and troubleshooting.
 
 ## MCP tools
 
-Read tools:
+The server currently exposes 22 tools.
+
+<details>
+<summary>Read tools</summary>
 
 - `accounts_list`, `folders_list`, `sync_status`, `sync_now`
 - `mail_list`, `mail_search`, `mail_get`
@@ -194,181 +133,78 @@ Read tools:
 - `calendar_availability`, `calendar_find_slots`
 - `calendar_search`, `calendar_get`
 
-Write tools:
+</details>
+
+<details>
+<summary>Write tools</summary>
 
 - `mail_mark_read`, `mail_send`, `mail_reply`, `mail_forward`
 - `calendar_create`, `calendar_update`, `calendar_delete`
 - `calendar_cancel`, `calendar_respond`
 
-`calendar_respond` accepts either an attendee `event_ref` from Calendar Search or
-an actionable `mail_ref` returned by `mail_list`, `mail_search`, or `mail_get`.
+</details>
 
-Writes are disabled per account by default. The same account switch controls
-mail and calendar mutations. Every write requires a UUID
-`idempotency_key`; a content-free SQLite journal prevents blind replay after an
-ambiguous network result. Passwords, Device IDs, policy state, and the journal
-HMAC key are stored in macOS Keychain.
+Lists and searches are bounded. Full bodies, attachments, and event details are
+loaded only through dedicated tools. Mail and calendar content is marked as
+`untrusted_external_content` before it is returned to the client.
 
-`mail_list` synchronizes Inbox and Sent when `folder_ids` is omitted. Other mail
-folders remain available through explicit `folder_ids`, while `sync_now`
-refreshes every mail collection for the selected accounts. `sync_status` reports
-only that process-local mail synchronization state.
+## Security model
 
-## Install and configure
+- HTTPS, hostname validation, certificate validation, response-origin checks,
+  and redirect rejection are mandatory.
+- Passwords, Device IDs, policy state, and the write-journal HMAC key are stored
+  in macOS Keychain.
+- Profiles contain endpoint metadata and optional public CA certificates, but
+  never credentials.
+- Mail and calendar writes are disabled independently for each account by
+  default and require caller-provided idempotency UUIDs.
+- Ambiguous network outcomes are not blindly retried.
+- Processes running as the same macOS user are inside the trusted local
+  boundary; MCP client names and client-side approval prompts are not
+  authentication mechanisms.
 
-The stable release supports macOS 14+ on Apple Silicon and Intel. Windows and
-Linux are not supported in `0.2.0`.
+Read [SECURITY.md](SECURITY.md) before deploying the server with corporate mail
+or an externally hosted AI model.
 
-```bash
-npm install -g eas-mail-mcp
-eas-mail-mcp setup
-```
+## Compatibility and limits
 
-`setup` imports or creates a profile, adds and verifies one or more accounts,
-offers to configure detected MCP clients, and runs redacted diagnostics. Run it
-again to add or repair accounts, update passwords, change write access, manage
-profiles, or rerun diagnostics. A portable profile contains endpoint metadata but never
-credentials. For example:
+`0.2.0` supports macOS arm64 and x86_64. Windows and Linux are not supported.
 
-```toml
-schema_version = 2
-bundle_version = "team-1"
+The runtime intentionally fixes HTTPS, EAS 14.1,
+`/Microsoft-Server-ActiveSync`, and `DeviceType=EasMailMCP`. It does not support
+OAuth, Microsoft Graph, IMAP, custom endpoint paths, redirects, TLS bypasses, or
+spoofing another client identity. Recurring events can be read, but modifying a
+series or one occurrence is rejected before any network write.
 
-[[profiles]]
-id = "work"
-display_name = "Work Mail"
-host = "mail.example.com"
-email_domains = ["example.com"]
-device_id_length = 16
+Exchange policy, server capabilities, allowlists, and corporate network rules
+can still prevent a technically valid profile from connecting.
 
-[profiles.identity]
-mode = "realm_username"
-realm = "EXAMPLE"
-username_hint = "Short corporate login"
+## Documentation
 
-[profiles.trust]
-mode = "system"
-```
+- [Getting started](docs/getting-started.md): installation, setup, accounts, and clients
+- [Установка на русском](docs/installation.ru.md): краткая русская инструкция
+- [Agent installation](docs/agent-installation.ru.md): безопасная передача настройки ИИ-агенту
+- [Runtime profiles](docs/runtime-profiles.md): portable profile schema and trust modes
+- [Architecture](docs/architecture.md): protocol, state, crates, and data flow
+- [Security](SECURITY.md): threat model and reporting policy
+- [Contributing](CONTRIBUTING.md): local development and engineering gates
+- [Releasing](docs/releasing.md): npm packaging and staged publication
 
-Identity mode can be `email`, `username`, or `realm_username`. In the last
-mode, the wizard accepts a short login and constructs `REALM\login` itself, so
-shell escaping is unnecessary. Schema v1 profiles remain readable and are
-rewritten as v2 on their next export or modification.
+## Development
 
-It can be imported explicitly before setup:
-
-```bash
-eas-mail-mcp profile import ./work-profile.toml
-eas-mail-mcp setup
-```
-
-Credentials do not go into `.env` or the MCP client configuration. The wizard
-asks for a hidden password and stores it only after TLS, authentication, EAS
-14.1, policy, and FolderSync checks succeed. To add another account, rerun
-`setup` or use the same interactive account flow directly:
-
-```bash
-eas-mail-mcp account add
-```
-
-Scripted automation can still provide all account flags and use
-`--password-stdin`; incomplete non-TTY input fails with
-`INTERACTIVE_REQUIRED`. Email, canonical username, and profile ID are stored in
-`~/Library/Application Support/EAS Mail MCP/config.toml`; the password is stored
-in macOS Keychain under the `eas-mail-mcp` service. Profiles are stored in
-`~/Library/Application Support/EAS Mail MCP/profiles.toml`.
-
-This release intentionally supports Basic Auth over strict TLS, EAS 14.1, and
-the standard `/Microsoft-Server-ActiveSync` path. It does not implement OAuth,
-IMAP, Microsoft Graph, custom EAS paths, TLS bypasses, or client identity
-spoofing.
-
-The recommended client setup creates a backup, registers the direct Rust
-binary, and removes obsolete write approval overrides created by earlier
-versions:
-
-```bash
-eas-mail-mcp client configure codex
-eas-mail-mcp client configure claude
-eas-mail-mcp client configure opencode
-```
-
-The configurator writes the direct Rust binary path, so Node.js is not part of
-the MCP runtime. Print that path for manual configuration with:
-
-```bash
-eas-mail-mcp native-path
-```
-
-Equivalent minimal Claude Code JSON configuration:
-
-```json
-{
-  "mcpServers": {
-    "eas-mail": {
-      "type": "stdio",
-      "command": "/absolute/path/to/eas-mail-mcp",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-Equivalent minimal Codex configuration in `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.eas-mail]
-command = "/absolute/path/to/eas-mail-mcp"
-args = ["serve"]
-```
-
-## Build the example
-
-Requirements are macOS 14+ and the Rust toolchain pinned in
-`rust-toolchain.toml`.
-
-```bash
-cargo xtask profile verify
-cargo xtask npm verify
-cargo xtask test
-```
-
-The public example profile is non-routable and is used only by validation and
-tests. It is not embedded in a binary.
-
-## Build npm packages
-
-Build signed-on-machine native tarballs for both supported macOS architectures
-and a root launcher package:
-
-```bash
-cargo xtask npm pack
-cargo xtask npm install-candidate
-```
-
-The output is written to `dist/npm`. Platform packages are exact optional
-dependencies of the root package and contain only one native binary. There are
-no install or postinstall scripts. Public releases use npm staged publishing so
-the exact tarballs can be installed and accepted before approval. See
-[Runtime profiles](docs/runtime-profiles.md) for the full profile schema,
-[Security](SECURITY.md) for the local trust boundary, and
-[npm release process](docs/releasing.md) for the staged flow.
-
-## Engineering gates
+The workspace uses the Rust toolchain pinned in `rust-toolchain.toml`.
 
 ```bash
 ./scripts/bootstrap-tools.sh
+cargo xtask test
 cargo xtask check
-cargo xtask public-audit
-cargo xtask goldens verify
 ```
 
-The harness covers WBXML, EAS pagination and policy handling, TLS failures,
-idempotent writes, MCP stdio framing, cursor expiry, and subprocess resilience.
-See [CONTRIBUTING.md](CONTRIBUTING.md) and
-[architecture.md](docs/architecture.md).
+`cargo xtask check` runs formatting, Clippy, rustdoc, file-size limits, golden
+fixtures, tests, coverage, dependency and license checks, secret scanning, and
+the public artifact audit.
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your
-option.
+Licensed under either the Apache License, Version 2.0 or the MIT License, at
+your option.
