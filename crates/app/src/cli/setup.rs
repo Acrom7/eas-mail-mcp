@@ -55,10 +55,7 @@ async fn run_with_actions(
 
     let diagnostics = actions.doctor(paths, &registry).await?;
     if terminal.is_interactive() {
-        terminal.message(&format!(
-            "Configured accounts: {}",
-            load_config(&paths.config)?.accounts.len()
-        ))?;
+        print_setup_summary(terminal, load_config(&paths.config)?.accounts.len(), &client_results)?;
     }
     Ok(serde_json::json!({
         "profiles": profile_result,
@@ -66,6 +63,35 @@ async fn run_with_actions(
         "clients": client_results,
         "doctor": diagnostics,
     }))
+}
+
+fn print_setup_summary(
+    terminal: &mut dyn Terminal,
+    account_count: usize,
+    client_results: &[serde_json::Value],
+) -> Result<()> {
+    terminal.message("Setup completed successfully")?;
+    terminal.message(&format!("Accounts: {account_count} configured"))?;
+    if client_results.is_empty() {
+        return Ok(());
+    }
+
+    terminal.message("AI clients:")?;
+    for result in client_results {
+        let name = result
+            .get("display_name")
+            .or_else(|| result.get("client"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Unknown client");
+        let status =
+            if result.get("configured").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                "configured, restart required"
+            } else {
+                "skipped"
+            };
+        terminal.message(&format!("  {name}: {status}"))?;
+    }
+    Ok(())
 }
 
 async fn add_account(

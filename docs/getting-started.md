@@ -140,8 +140,10 @@ instructions provide the desired user-control model.
 
 ## Configure MCP clients
 
-The setup wizard offers to configure detected clients automatically. The same
-operations can be run explicitly:
+The setup wizard lists detected clients and offers to register EAS Mail MCP in
+each one automatically; no manual MCP configuration is required. It confirms
+each updated client and reminds you to restart it. The same operations can be
+run explicitly:
 
 ```bash
 eas-mail-mcp client configure codex

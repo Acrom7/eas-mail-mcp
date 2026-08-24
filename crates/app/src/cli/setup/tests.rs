@@ -320,6 +320,14 @@ async fn repeated_setup_routes_every_management_action() -> anyhow::Result<()> {
     assert!(load_config(&paths.config)?.accounts["example"].write_enabled);
     assert!(terminal.transcript.iter().any(|line| line.contains("sha256")));
     assert!(terminal.transcript.iter().any(|line| line.contains("Diagnostics completed")));
+    assert!(terminal.transcript.iter().any(|line| line.contains("Setup completed successfully")));
+    assert!(terminal.transcript.iter().any(|line| line.contains("Accounts: 2 configured")));
+    assert!(
+        terminal
+            .transcript
+            .iter()
+            .any(|line| line.contains("fixture: configured, restart required"))
+    );
     Ok(())
 }
 

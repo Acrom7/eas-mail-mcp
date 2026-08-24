@@ -308,11 +308,7 @@ pub async fn run() -> Result<()> {
         }
         Command::Setup(arguments) => {
             let value = setup::run(&paths, arguments, &mut terminal).await?;
-            if cli.json || !terminal.is_interactive() {
-                emit(&value)
-            } else {
-                terminal.message("Setup completed successfully")
-            }
+            if cli.json || !terminal.is_interactive() { emit(&value) } else { Ok(()) }
         }
         Command::Account { command } => {
             let profiles = load_profile_registry(&paths.profiles)?;

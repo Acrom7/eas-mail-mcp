@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 use toml_edit::DocumentMut;
 
 use super::*;
+use crate::cli::terminal::testing::ScriptedTerminal;
 
 #[test]
 fn executable_version_is_best_effort_diagnostics() -> anyhow::Result<()> {
@@ -178,6 +179,74 @@ fn black_box_replace_server_does_not_launch_the_existing_server() -> anyhow::Res
     assert_eq!(client_name(ClientKind::Codex), "codex");
     assert_eq!(client_name(ClientKind::Claude), "claude");
     assert_eq!(client_name(ClientKind::Opencode), "opencode");
+    assert_eq!(client_display_name(ClientKind::Codex), "Codex");
+    assert_eq!(client_display_name(ClientKind::Claude), "Claude Code");
+    assert_eq!(client_display_name(ClientKind::Opencode), "OpenCode");
+    Ok(())
+}
+
+#[test]
+fn detected_client_setup_explains_automatic_connection_and_restart() -> anyhow::Result<()> {
+    let detected = detect_supported_clients(|executable| match executable {
+        "codex" => Some("codex-cli 0.148.0".into()),
+        "claude" => Some("2.1.0".into()),
+        _ => None,
+    });
+    assert_eq!(detected.len(), 2);
+    let mut terminal = ScriptedTerminal::new(&["y", "n"], &[]);
+    let results = configure_detected(&mut terminal, &detected, |arguments| {
+        Ok(serde_json::json!({
+            "client": client_name(arguments.client),
+            "configured": true,
+        }))
+    })?;
+
+    assert_eq!(results[0]["display_name"], "Codex");
+    assert_eq!(results[0]["restart_required"], true);
+    assert_eq!(results[1]["display_name"], "Claude Code");
+    assert_eq!(results[1]["reason"], "declined");
+    assert!(
+        terminal
+            .transcript
+            .iter()
+            .any(|line| { line.contains("no manual MCP config is required") })
+    );
+    assert!(terminal.transcript.iter().any(|line| line.contains("Codex (codex-cli 0.148.0)")));
+    assert!(
+        terminal.transcript.iter().any(|line| {
+            line.contains("prompt:Connect EAS Mail MCP to Codex automatically [Y/n]")
+        })
+    );
+    assert!(
+        terminal
+            .transcript
+            .iter()
+            .any(|line| line.contains("Restart Codex to activate EAS Mail MCP"))
+    );
+    assert!(terminal.transcript.iter().any(|line| line.contains("Claude Code skipped")));
+    Ok(())
+}
+
+#[test]
+fn missing_clients_get_a_later_setup_command() -> anyhow::Result<()> {
+    let mut terminal = ScriptedTerminal::new(&[], &[]);
+    let results = configure_detected(&mut terminal, &[], |_: ClientArgs| {
+        Err(AppError::new(ErrorCode::ProtocolError, "unexpected configuration attempt"))
+    })?;
+
+    assert!(results.is_empty());
+    assert!(
+        terminal
+            .transcript
+            .iter()
+            .any(|line| line.contains("No supported AI client commands were detected"))
+    );
+    assert!(
+        terminal
+            .transcript
+            .iter()
+            .any(|line| { line.contains("eas-mail-mcp client configure <codex|claude|opencode>") })
+    );
     Ok(())
 }
 

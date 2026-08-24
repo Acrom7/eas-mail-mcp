@@ -72,3 +72,11 @@ pub(super) const fn client_name(client: ClientKind) -> &'static str {
         ClientKind::Opencode => "opencode",
     }
 }
+
+pub(super) const fn client_display_name(client: ClientKind) -> &'static str {
+    match client {
+        ClientKind::Codex => "Codex",
+        ClientKind::Claude => "Claude Code",
+        ClientKind::Opencode => "OpenCode",
+    }
+}

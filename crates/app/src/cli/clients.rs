@@ -10,7 +10,7 @@ use self::configuration::{
     unconfigure_opencode,
 };
 use self::files::ClientFiles;
-use self::process::{client_name, detect_version};
+use self::process::{client_display_name, client_name, detect_version};
 use super::terminal::Terminal;
 use super::{ClientArgs, ClientCommand};
 use crate::{AppError, ErrorCode, Paths, Result};
@@ -35,6 +35,13 @@ pub(super) enum ClientKind {
     Opencode,
 }
 
+#[derive(Debug, Clone)]
+struct DetectedClient {
+    kind: ClientKind,
+    executable: String,
+    version: String,
+}
+
 pub(super) fn run(paths: &Paths, command: ClientCommand) -> Result<Value> {
     match command {
         ClientCommand::Configure(arguments) => configure(paths, arguments),
@@ -46,22 +53,90 @@ pub(super) fn configure_detected_with_terminal(
     paths: &Paths,
     terminal: &mut dyn Terminal,
 ) -> Result<Vec<Value>> {
+    let detected = detect_supported_clients(detect_version);
+    configure_detected(terminal, &detected, |arguments| configure(paths, arguments))
+}
+
+fn detect_supported_clients(mut detect: impl FnMut(&str) -> Option<String>) -> Vec<DetectedClient> {
+    [ClientKind::Codex, ClientKind::Claude, ClientKind::Opencode]
+        .into_iter()
+        .filter_map(|kind| {
+            let executable = client_name(kind).to_owned();
+            let version = detect(&executable)?;
+            Some(DetectedClient { kind, executable, version })
+        })
+        .collect()
+}
+
+fn configure_detected(
+    terminal: &mut dyn Terminal,
+    detected: &[DetectedClient],
+    mut configure_client: impl FnMut(ClientArgs) -> Result<Value>,
+) -> Result<Vec<Value>> {
+    terminal.message("AI client connection")?;
+    if detected.is_empty() {
+        terminal.message("No supported AI client commands were detected")?;
+        terminal.message(
+            "Connect one later with: eas-mail-mcp client configure <codex|claude|opencode>",
+        )?;
+        return Ok(Vec::new());
+    }
+
+    terminal.message(
+        "EAS Mail MCP can register itself automatically; no manual MCP config is required.",
+    )?;
+    terminal.message("Detected AI clients:")?;
+    for client in detected {
+        terminal.message(&format!(
+            "  {} ({})",
+            client_display_name(client.kind),
+            client.version
+        ))?;
+    }
+
     let mut results = Vec::new();
-    for client in [ClientKind::Codex, ClientKind::Claude, ClientKind::Opencode] {
-        let executable = client_name(client).to_owned();
-        let Some(version) = detect_version(&executable) else { continue };
-        if terminal.confirm(&format!("Configure {}", client_name(client)), true)? {
-            results.push(configure(paths, ClientArgs { client, executable: Some(executable) })?);
+    for client in detected {
+        let display_name = client_display_name(client.kind);
+        if terminal
+            .confirm(&format!("Connect EAS Mail MCP to {display_name} automatically"), true)?
+        {
+            let mut result = configure_client(ClientArgs {
+                client: client.kind,
+                executable: Some(client.executable.clone()),
+            })?;
+            add_client_result_metadata(&mut result, display_name, true)?;
+            terminal.message(&format!("{display_name} configured successfully"))?;
+            terminal.message(&format!("Restart {display_name} to activate EAS Mail MCP"))?;
+            results.push(result);
         } else {
+            terminal.message(&format!(
+                "{display_name} skipped; connect it later with: eas-mail-mcp client configure {}",
+                client_name(client.kind)
+            ))?;
             results.push(serde_json::json!({
-                "client": client_name(client),
-                "version": version,
+                "client": client_name(client.kind),
+                "display_name": display_name,
+                "version": client.version,
                 "configured": false,
+                "restart_required": false,
                 "reason": "declined",
             }));
         }
     }
     Ok(results)
+}
+
+fn add_client_result_metadata(
+    result: &mut Value,
+    display_name: &str,
+    restart_required: bool,
+) -> Result<()> {
+    let object = result.as_object_mut().ok_or_else(|| {
+        AppError::new(ErrorCode::ProtocolError, "client configuration result is invalid")
+    })?;
+    object.insert("display_name".into(), Value::String(display_name.into()));
+    object.insert("restart_required".into(), Value::Bool(restart_required));
+    Ok(())
 }
 
 fn configure(paths: &Paths, arguments: ClientArgs) -> Result<Value> {
