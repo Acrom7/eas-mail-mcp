@@ -1,14 +1,22 @@
-use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
+
+#[path = "cli/support.rs"]
+mod cli_support;
+
+use self::cli_support::{
+    event_ref, human_success, json_success, parse, run, run_stdin, string_at, strings, text, uuid,
+    write_success,
+};
 
 #[test]
 fn read_commands_are_bounded_and_references_cross_processes() -> anyhow::Result<()> {
     let state = tempfile::tempdir()?;
     json_success(state.path(), &strings(&["account", "list"]))?;
     json_success(state.path(), &strings(&["folder", "list"]))?;
+    human_success(state.path(), &strings(&["--human", "account", "list"]))?;
+    human_success(state.path(), &strings(&["--human", "folder", "list"]))?;
 
     let default_page = json_success(state.path(), &strings(&["mail", "list"]))?;
     assert_eq!(
@@ -30,11 +38,26 @@ fn read_commands_are_bounded_and_references_cross_processes() -> anyhow::Result<
         json_success(state.path(), &strings(&["mail", "search", "report", "--limit", "1"]))?;
     assert_eq!(searched.pointer("/data/items").and_then(Value::as_array).map(Vec::len), Some(1));
     json_success(state.path(), &["mail".into(), "get".into(), mail_ref.clone()])?;
+    human_success(
+        state.path(),
+        &["--human".into(), "mail".into(), "get".into(), mail_ref.clone()],
+    )?;
     let attachments =
         json_success(state.path(), &["mail".into(), "attachments".into(), mail_ref.clone()])?;
+    human_success(
+        state.path(),
+        &["--human".into(), "mail".into(), "attachments".into(), mail_ref],
+    )?;
     let attachment_ref = string_at(&attachments, "/data/attachments/0/attachment_ref")?;
-    let download = json_success(state.path(), &["mail".into(), "download".into(), attachment_ref])?;
-    assert!(Path::new(&string_at(&download, "/data/path")?).is_file());
+    let download =
+        json_success(state.path(), &["mail".into(), "download".into(), attachment_ref.clone()])?;
+    let downloaded = string_at(&download, "/data/path")?;
+    assert!(Path::new(&downloaded).is_file());
+    std::fs::remove_file(downloaded)?;
+    human_success(
+        state.path(),
+        &["--human".into(), "mail".into(), "download".into(), attachment_ref],
+    )?;
 
     let all = json_success(state.path(), &strings(&["mail", "list", "--all"]))?;
     assert_eq!(all.pointer("/data/items").and_then(Value::as_array).map(Vec::len), Some(250));
@@ -70,16 +93,21 @@ fn calendar_read_commands_use_compact_runtime_contracts() -> anyhow::Result<()> 
     let mut availability = strings(&["calendar", "availability"]);
     availability.extend(strings(&common));
     json_success(state.path(), &availability)?;
+    availability.insert(0, "--human".into());
+    human_success(state.path(), &availability)?;
 
     let mut slots = strings(&["calendar", "find-slots"]);
     slots.extend(strings(&common));
     slots.extend(strings(&["--duration", "30"]));
     json_success(state.path(), &slots)?;
+    slots.insert(0, "--human".into());
+    human_success(state.path(), &slots)?;
 
     let search =
         json_success(state.path(), &strings(&["calendar", "search", "planning", "--limit", "1"]))?;
     let event_ref = string_at(&search, "/data/items/0/event_ref")?;
-    json_success(state.path(), &["calendar".into(), "get".into(), event_ref])?;
+    json_success(state.path(), &["calendar".into(), "get".into(), event_ref.clone()])?;
+    human_success(state.path(), &["--human".into(), "calendar".into(), "get".into(), event_ref])?;
     let agenda = json_success(
         state.path(),
         &strings(&[
@@ -94,6 +122,20 @@ fn calendar_read_commands_use_compact_runtime_contracts() -> anyhow::Result<()> 
         ]),
     )?;
     assert!(agenda.pointer("/data/items").and_then(Value::as_array).is_some());
+    human_success(
+        state.path(),
+        &strings(&[
+            "--human",
+            "calendar",
+            "agenda",
+            "--from",
+            "2023-11-14",
+            "--to",
+            "2023-11-16",
+            "--time-zone",
+            "UTC",
+        ]),
+    )?;
     Ok(())
 }
 
@@ -203,6 +245,9 @@ fn send_confirmation_cases(state: &Path) -> anyhow::Result<()> {
     assert!(replay.status.success());
     assert!(!text(&replay.stderr)?.contains("Operation:"));
     assert!(text(&replay.stdout)?.contains("prior operation"));
+    let mut human_replay = send.clone();
+    human_replay.insert(0, "--human".into());
+    human_success(state, &human_replay)?;
 
     let conflict = strings(&[
         "mail",
@@ -366,76 +411,29 @@ fn json_input_stdin_and_usage_fail_closed() -> anyhow::Result<()> {
     let output = parse(&output.stdout)?;
     let operation_id = string_at(&output, "/data/operation_id")?;
     uuid::Uuid::parse_str(&operation_id)?;
-    Ok(())
-}
 
-fn event_ref(state: &Path, query: &str) -> anyhow::Result<String> {
-    let value = json_success(
-        state,
-        &["calendar".into(), "search".into(), query.into(), "--limit".into(), "1".into()],
+    let send_input = state.path().join("send.json");
+    std::fs::write(
+        &send_input,
+        serde_json::to_vec(&serde_json::json!({
+            "account_id": "example",
+            "to": ["recipient@example.invalid"],
+            "cc": [],
+            "bcc": [],
+            "subject": "JSON input",
+            "body": "body"
+        }))?,
     )?;
-    string_at(&value, "/data/items/0/event_ref")
-}
-
-fn write_success(state: &Path, arguments: &[String]) -> anyhow::Result<String> {
-    let output = run(state, arguments)?;
-    anyhow::ensure!(output.status.success(), "{}", text(&output.stderr)?);
-    let value = parse(&output.stdout)?;
-    anyhow::ensure!(value.pointer("/data/status").and_then(Value::as_str) == Some("succeeded"));
-    let preview = text(&output.stderr)?;
-    anyhow::ensure!(preview.contains("Operation:"));
-    Ok(preview)
-}
-
-fn json_success(state: &Path, arguments: &[String]) -> anyhow::Result<Value> {
-    let output = run(state, arguments)?;
-    anyhow::ensure!(output.status.success(), "{}", text(&output.stderr)?);
-    parse(&output.stdout)
-}
-
-fn run(state: &Path, arguments: &[String]) -> anyhow::Result<Output> {
-    Ok(Command::new(env!("CARGO_BIN_EXE_harness-cli"))
-        .args(arguments)
-        .env("EAS_MAIL_HARNESS_STATE_DIR", state)
-        .output()?)
-}
-
-fn run_stdin(state: &Path, arguments: &[String], stdin: &str) -> anyhow::Result<Output> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_harness-cli"))
-        .args(arguments)
-        .env("EAS_MAIL_HARNESS_STATE_DIR", state)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("CLI stdin is unavailable"))?
-        .write_all(stdin.as_bytes())?;
-    Ok(child.wait_with_output()?)
-}
-
-fn parse(bytes: &[u8]) -> anyhow::Result<Value> {
-    Ok(serde_json::from_slice(bytes)?)
-}
-
-fn string_at(value: &Value, pointer: &str) -> anyhow::Result<String> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow::anyhow!("missing string at {pointer}"))
-}
-
-fn text(bytes: &[u8]) -> anyhow::Result<String> {
-    Ok(String::from_utf8(bytes.to_vec())?)
-}
-
-fn strings(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
-}
-
-fn uuid(value: u8) -> String {
-    format!("00000000-0000-4000-8000-{value:012}")
+    let output = json_success(
+        state.path(),
+        &[
+            "mail".into(),
+            "send".into(),
+            "--input".into(),
+            send_input.display().to_string(),
+            "--yes".into(),
+        ],
+    )?;
+    uuid::Uuid::parse_str(&string_at(&output, "/data/operation_id")?)?;
+    Ok(())
 }

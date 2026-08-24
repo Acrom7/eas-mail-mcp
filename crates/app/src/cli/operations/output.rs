@@ -74,3 +74,11 @@ fn emit_human<T: Serialize>(response: &ApiResponse<T>, kind: OutputKind) -> Resu
 fn literal(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"unavailable\"".to_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn warning_literals_escape_lines_and_terminal_controls() {
+        assert_eq!(super::literal("line\n\u{1b}[31m"), "\"line\\n\\u001b[31m\"");
+    }
+}
