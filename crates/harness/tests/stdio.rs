@@ -130,8 +130,8 @@ fn verify_tool_schemas(tools: &[rmcp::model::Tool]) -> Result<()> {
     anyhow::ensure!(tools.iter().all(|tool| tool.output_schema.is_some()), "missing output schema");
     let schemas = serde_json::to_value(tools)?;
     anyhow::ensure!(
-        !contains_unsigned_format(&schemas),
-        "tool schemas expose non-portable unsigned integer formats"
+        !contains_numeric_format(&schemas),
+        "tool schemas expose non-portable numeric formats"
     );
     let send_schema = tools
         .iter()
@@ -333,15 +333,18 @@ async fn exercise_calendar_writes(peer: &Peer<RoleClient>) -> Result<()> {
     Ok(())
 }
 
-fn contains_unsigned_format(value: &Value) -> bool {
+fn contains_numeric_format(value: &Value) -> bool {
     match value {
-        Value::Array(items) => items.iter().any(contains_unsigned_format),
+        Value::Array(items) => items.iter().any(contains_numeric_format),
         Value::Object(fields) => {
-            fields
-                .get("format")
-                .and_then(Value::as_str)
-                .is_some_and(|value| matches!(value, "uint" | "uint64"))
-                || fields.values().any(contains_unsigned_format)
+            let numeric = fields.get("type").is_some_and(|value| match value {
+                Value::Array(types) => {
+                    types.iter().any(|value| matches!(value.as_str(), Some("integer" | "number")))
+                }
+                _ => matches!(value.as_str(), Some("integer" | "number")),
+            });
+            (numeric && fields.contains_key("format"))
+                || fields.values().any(contains_numeric_format)
         }
         _ => false,
     }

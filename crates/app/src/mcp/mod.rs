@@ -1,4 +1,5 @@
 mod read_tools;
+mod schema;
 mod write_tools;
 
 use std::sync::Arc;
@@ -19,7 +20,9 @@ impl MailMcpServer {
     /// Creates a server over one direct process-local runtime.
     #[must_use]
     pub fn new(runtime: Arc<Runtime>) -> Self {
-        Self { runtime, tool_router: Self::read_tools() + Self::write_tools() }
+        let mut tool_router = Self::read_tools() + Self::write_tools();
+        schema::remove_numeric_formats(&mut tool_router);
+        Self { runtime, tool_router }
     }
 }
 

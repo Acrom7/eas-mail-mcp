@@ -1,6 +1,6 @@
 use crate::ErrorEnvelope;
 use chrono::{DateTime, Utc};
-use schemars::{JsonSchema, Schema};
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// Account-scoped warning returned alongside partial results.
@@ -93,10 +93,8 @@ pub struct SyncReport {
     /// Synchronization scope, currently always `mail`.
     pub scope: String,
     /// Collections synchronized.
-    #[schemars(transform = remove_numeric_format)]
     pub collections_synced: usize,
     /// Changes applied to RAM.
-    #[schemars(transform = remove_numeric_format)]
     pub changes_applied: usize,
     /// Completion time.
     pub completed_at: DateTime<Utc>,
@@ -189,7 +187,6 @@ pub struct AttachmentView {
     /// Safe display name.
     pub display_name: String,
     /// Estimated size.
-    #[schemars(transform = remove_numeric_format)]
     pub size: u64,
     /// MIME type.
     pub content_type: String,
@@ -213,10 +210,6 @@ pub struct AttachmentDownload {
     pub path: String,
     /// Expiry time; the process may delete the file sooner on shutdown.
     pub expires_at: DateTime<Utc>,
-}
-
-fn remove_numeric_format(schema: &mut Schema) {
-    schema.remove("format");
 }
 
 /// Stable operation state.
