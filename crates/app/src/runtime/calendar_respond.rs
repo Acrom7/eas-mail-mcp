@@ -2,10 +2,12 @@ use super::Runtime;
 use super::calendar_mime::CalendarMessageMethod;
 use super::calendar_prepare::{self, EventOwnership};
 use super::calendar_response_prepare;
+use super::calendar_write_preview::response_preview;
 use super::calendar_write_result::{self, STEP_REPLY, STEP_RESPONSE};
 use super::calendar_write_support::{
     organizer, required_notification, response_choice, response_reference, step_client_id,
 };
+use super::write_preview;
 use crate::backend::{BackendEvent, BackendMail};
 use crate::model::{CalendarOperationResult, CalendarRespondInput};
 use crate::references::MeetingReference;
@@ -15,6 +17,7 @@ impl Runtime {
     pub(super) async fn calendar_respond_result(
         &self,
         input: CalendarRespondInput,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if let Some(record) =
             self.replay_write("calendar_respond", &input.idempotency_key, &input)?
@@ -23,8 +26,12 @@ impl Runtime {
         }
         calendar_prepare::validate_comment(&input.comment)?;
         match self.references.meeting(&input.event_ref)? {
-            MeetingReference::Event(reference) => self.respond_to_event(&input, reference).await,
-            MeetingReference::Mail(reference) => self.respond_to_mail(&input, reference).await,
+            MeetingReference::Event(reference) => {
+                self.respond_to_event(&input, reference, expected).await
+            }
+            MeetingReference::Mail(reference) => {
+                self.respond_to_mail(&input, reference, expected).await
+            }
         }
     }
 
@@ -32,6 +39,7 @@ impl Runtime {
         &self,
         input: &CalendarRespondInput,
         reference: BackendEvent,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         calendar_prepare::require_non_recurring(&reference)?;
         let backend = self.require_write(&reference.account_id)?;
@@ -44,6 +52,10 @@ impl Runtime {
             return Err(validation("calendar_respond requires a received meeting"));
         }
         let prepared = calendar_prepare::existing(&source, self.clock.now())?;
+        write_preview::verify(
+            &response_preview(&reference.account_id, &prepared, input),
+            expected,
+        )?;
         let organizer = organizer(&source)?;
         let reply_id = step_client_id(&input.idempotency_key, "reply")?;
         let reply_mime = prepared
@@ -83,6 +95,7 @@ impl Runtime {
         &self,
         input: &CalendarRespondInput,
         reference: BackendMail,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         let backend = self.require_write(&reference.account_id)?;
         let account = backend.account();
@@ -93,6 +106,10 @@ impl Runtime {
             backend.fetch_mail(&reference.source, 50_000).await,
         )?;
         let prepared = calendar_response_prepare::prepare(&fetched, self.clock.now())?;
+        write_preview::verify(
+            &response_preview(&reference.account_id, &prepared.event, input),
+            expected,
+        )?;
         let reply_id = step_client_id(&input.idempotency_key, "reply")?;
         let reply_mime =
             response_mime(&account.email, &prepared.event, &prepared.organizer, input)?;

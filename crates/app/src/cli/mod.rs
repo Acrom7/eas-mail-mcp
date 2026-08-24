@@ -2,6 +2,7 @@ mod account_secrets;
 mod accounts;
 mod clients;
 mod doctor;
+mod operations;
 mod profiles;
 mod setup;
 mod terminal;
@@ -17,13 +18,16 @@ use self::terminal::{StdioTerminal, Terminal as _};
 use crate::profiles::require_profile_registry;
 use crate::{AppError, ErrorCode, Paths, Result, Runtime, load_config, load_profile_registry};
 
-/// Direct stdio MCP and local administration CLI.
+/// Direct stdio MCP, operational CLI, and local administration.
 #[derive(Debug, Parser)]
 #[command(name = "eas-mail-mcp", about, disable_version_flag = true)]
 struct Cli {
     /// Emit machine-readable JSON for administrative commands.
     #[arg(long, global = true)]
     json: bool,
+    /// Emit compact human-readable output for operational commands.
+    #[arg(long, global = true, conflicts_with = "json")]
+    human: bool,
     /// Print application version information.
     #[arg(long)]
     version: bool,
@@ -44,6 +48,21 @@ enum Command {
     Account {
         #[command(subcommand)]
         command: AccountCommand,
+    },
+    /// Read Exchange folders.
+    Folder {
+        #[command(subcommand)]
+        command: operations::FolderCommand,
+    },
+    /// Read and manage mail.
+    Mail {
+        #[command(subcommand)]
+        command: operations::MailCommand,
+    },
+    /// Read and manage Calendar data.
+    Calendar {
+        #[command(subcommand)]
+        command: operations::CalendarCommand,
     },
     /// Run redacted configuration and live EAS diagnostics.
     Doctor,
@@ -263,6 +282,29 @@ enum ClientCommand {
     Unconfigure(ClientArgs),
 }
 
+/// Process exit category returned after a successfully parsed CLI command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliExit {
+    /// The command completed successfully.
+    Success,
+    /// The user declined an interactive mutation.
+    Declined,
+    /// Exchange returned a failed, partial, or unknown mutation outcome.
+    WriteNotSucceeded,
+}
+
+impl CliExit {
+    /// Returns the documented process exit code.
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::Success => 0,
+            Self::Declined => 2,
+            Self::WriteNotSucceeded => 3,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct ClientArgs {
     /// Supported AI client.
@@ -274,7 +316,16 @@ struct ClientArgs {
 }
 
 /// Parses and runs one CLI command.
-pub async fn run() -> Result<()> {
+pub async fn run() -> Result<CliExit> {
+    let cli = Cli::parse();
+    run_production(cli).await
+}
+
+/// Runs only operational commands against an explicitly supplied runtime.
+///
+/// This preserves the production parser and dispatch path for deterministic black-box harnesses
+/// without adding endpoint overrides or test dependencies to the application.
+pub async fn run_with_runtime(runtime: Arc<Runtime>) -> Result<CliExit> {
     let cli = Cli::parse();
     if cli.version {
         if cli.command.is_some() {
@@ -283,13 +334,38 @@ pub async fn run() -> Result<()> {
                 "--version cannot be combined with a command",
             ));
         }
-        return emit_version(cli.verbose);
+        emit_version(cli.verbose)?;
+        return Ok(CliExit::Success);
     }
-    let command = cli.command.ok_or_else(|| {
-        AppError::new(ErrorCode::ValidationFailed, "a command or --version is required")
-    })?;
+    let command = cli.command.ok_or_else(missing_command)?;
+    let mode = operations::output_mode(cli.human);
+    match command {
+        Command::Account { command: AccountCommand::List } => operations::accounts(&runtime, mode),
+        Command::Folder { command } => operations::folders(&runtime, command, mode).await,
+        Command::Mail { command } => operations::mail(&runtime, command, mode).await,
+        Command::Calendar { command } => operations::calendar(&runtime, command, mode).await,
+        _ => Err(AppError::new(
+            ErrorCode::ValidationFailed,
+            "the injected runtime accepts only operational account, folder, mail, and calendar commands",
+        )),
+    }
+}
+
+async fn run_production(cli: Cli) -> Result<CliExit> {
+    if cli.version {
+        if cli.command.is_some() {
+            return Err(AppError::new(
+                ErrorCode::ValidationFailed,
+                "--version cannot be combined with a command",
+            ));
+        }
+        emit_version(cli.verbose)?;
+        return Ok(CliExit::Success);
+    }
+    let command = cli.command.ok_or_else(missing_command)?;
     if matches!(&command, Command::NativePath) {
-        return emit_native_path();
+        emit_native_path()?;
+        return Ok(CliExit::Success);
     }
     let paths = Paths::standard()?;
     paths.ensure()?;
@@ -297,6 +373,7 @@ pub async fn run() -> Result<()> {
     if cli.json {
         terminal.disable_interaction();
     }
+    let output_mode = operations::output_mode(cli.human);
     match command {
         Command::Serve => {
             let profiles = require_profile_registry(&paths.profiles)?;
@@ -304,26 +381,64 @@ pub async fn run() -> Result<()> {
             let runtime = Arc::new(Runtime::production(config, &paths, &profiles)?);
             crate::mcp::serve_stdio(runtime).await.map_err(|_| {
                 AppError::new(ErrorCode::ProtocolError, "MCP stdio transport stopped unexpectedly")
-            })
+            })?;
+            Ok(CliExit::Success)
         }
         Command::Setup(arguments) => {
             let value = setup::run(&paths, arguments, &mut terminal).await?;
-            if cli.json || !terminal.is_interactive() { emit(&value) } else { Ok(()) }
+            if cli.json || !terminal.is_interactive() {
+                emit(&value)?;
+            }
+            Ok(CliExit::Success)
+        }
+        Command::Account { command: AccountCommand::List } => {
+            let runtime = production_runtime(&paths)?;
+            operations::accounts(&runtime, output_mode)
         }
         Command::Account { command } => {
             let profiles = load_profile_registry(&paths.profiles)?;
-            emit(&accounts::run(&paths, command, profiles.as_ref(), &mut terminal).await?)
+            emit(&accounts::run(&paths, command, profiles.as_ref(), &mut terminal).await?)?;
+            Ok(CliExit::Success)
+        }
+        Command::Folder { command } => {
+            let runtime = production_runtime(&paths)?;
+            operations::folders(&runtime, command, output_mode).await
+        }
+        Command::Mail { command } => {
+            let runtime = production_runtime(&paths)?;
+            operations::mail(&runtime, command, output_mode).await
+        }
+        Command::Calendar { command } => {
+            let runtime = production_runtime(&paths)?;
+            operations::calendar(&runtime, command, output_mode).await
         }
         Command::Doctor => {
             let profiles = load_profile_registry(&paths.profiles)?;
-            emit(&doctor::run(&paths, profiles.as_ref()).await?)
+            emit(&doctor::run(&paths, profiles.as_ref()).await?)?;
+            Ok(CliExit::Success)
         }
-        Command::Client { command } => emit(&clients::run(&paths, command)?),
-        Command::Profile { command } => emit(&profiles::run(&paths, command)?),
+        Command::Client { command } => {
+            emit(&clients::run(&paths, command)?)?;
+            Ok(CliExit::Success)
+        }
+        Command::Profile { command } => {
+            emit(&profiles::run(&paths, command)?)?;
+            Ok(CliExit::Success)
+        }
         Command::NativePath => {
             Err(AppError::new(ErrorCode::ProtocolError, "native path command dispatch is invalid"))
         }
     }
+}
+
+fn missing_command() -> AppError {
+    AppError::new(ErrorCode::ValidationFailed, "a command or --version is required")
+}
+
+fn production_runtime(paths: &Paths) -> Result<Runtime> {
+    let profiles = require_profile_registry(&paths.profiles)?;
+    let config = load_config(&paths.config)?;
+    Runtime::production(config, paths, &profiles)
 }
 
 fn emit_version(verbose: bool) -> Result<()> {

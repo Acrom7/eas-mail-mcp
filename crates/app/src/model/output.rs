@@ -110,7 +110,7 @@ pub struct SyncData {
 /// Safe message summary.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MailSummary {
-    /// Process-local opaque reference.
+    /// Portable opaque mail reference.
     pub mail_ref: String,
     /// Owning account ID.
     pub account_id: String,
@@ -177,10 +177,10 @@ pub struct MailDetail {
     pub body_truncated: bool,
 }
 
-/// Process-local attachment metadata.
+/// Attachment metadata with portable opaque references.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct AttachmentView {
-    /// Opaque attachment reference.
+    /// Portable opaque attachment reference.
     pub attachment_ref: String,
     /// Owning account ID.
     pub account_id: String,

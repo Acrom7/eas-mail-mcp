@@ -3,10 +3,12 @@ use std::sync::Arc;
 use super::Runtime;
 use super::calendar_mime::CalendarMessageMethod;
 use super::calendar_prepare::{self, EventOwnership};
+use super::calendar_write_preview::{event_preview, update_preview};
 use super::calendar_write_result::{self, STEP_ITEM, STEP_NOTIFY_CURRENT, STEP_NOTIFY_REMOVED};
 use super::calendar_write_support::{
     notification, operation_uid, required_notification, step_client_id,
 };
+use super::write_preview;
 use crate::backend::AccountBackend;
 use crate::model::{
     ApiResponse, CalendarCancelInput, CalendarCreateInput, CalendarDeleteInput,
@@ -20,7 +22,7 @@ impl Runtime {
         &self,
         input: CalendarCreateInput,
     ) -> ApiResponse<CalendarOperationResult> {
-        Self::response(self.calendar_create_result(input).await)
+        Self::response(self.calendar_create_result(input, None).await)
     }
 
     /// Applies a patch to one non-recurring personal event or organizer meeting.
@@ -28,7 +30,7 @@ impl Runtime {
         &self,
         input: CalendarUpdateInput,
     ) -> ApiResponse<CalendarOperationResult> {
-        Self::response(self.calendar_update_result(input).await)
+        Self::response(self.calendar_update_result(input, None).await)
     }
 
     /// Deletes one non-recurring personal event.
@@ -36,7 +38,7 @@ impl Runtime {
         &self,
         input: CalendarDeleteInput,
     ) -> ApiResponse<CalendarOperationResult> {
-        Self::response(self.calendar_delete_result(input).await)
+        Self::response(self.calendar_delete_result(input, None).await)
     }
 
     /// Cancels one non-recurring organizer meeting and notifies attendees.
@@ -44,7 +46,7 @@ impl Runtime {
         &self,
         input: CalendarCancelInput,
     ) -> ApiResponse<CalendarOperationResult> {
-        Self::response(self.calendar_cancel_result(input).await)
+        Self::response(self.calendar_cancel_result(input, None).await)
     }
 
     /// Accepts, tentatively accepts, or declines one non-recurring received meeting.
@@ -52,12 +54,53 @@ impl Runtime {
         &self,
         input: CalendarRespondInput,
     ) -> ApiResponse<CalendarOperationResult> {
-        Self::response(self.calendar_respond_result(input).await)
+        Self::response(self.calendar_respond_result(input, None).await)
+    }
+
+    pub(crate) async fn commit_cli_calendar_create(
+        &self,
+        input: CalendarCreateInput,
+        expected: &str,
+    ) -> ApiResponse<CalendarOperationResult> {
+        Self::response(self.calendar_create_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_calendar_update(
+        &self,
+        input: CalendarUpdateInput,
+        expected: &str,
+    ) -> ApiResponse<CalendarOperationResult> {
+        Self::response(self.calendar_update_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_calendar_delete(
+        &self,
+        input: CalendarDeleteInput,
+        expected: &str,
+    ) -> ApiResponse<CalendarOperationResult> {
+        Self::response(self.calendar_delete_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_calendar_cancel(
+        &self,
+        input: CalendarCancelInput,
+        expected: &str,
+    ) -> ApiResponse<CalendarOperationResult> {
+        Self::response(self.calendar_cancel_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_calendar_respond(
+        &self,
+        input: CalendarRespondInput,
+        expected: &str,
+    ) -> ApiResponse<CalendarOperationResult> {
+        Self::response(self.calendar_respond_result(input, Some(expected)).await)
     }
 
     async fn calendar_create_result(
         &self,
         input: CalendarCreateInput,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if let Some(record) =
             self.replay_write("calendar_create", &input.idempotency_key, &input)?
@@ -82,6 +125,10 @@ impl Runtime {
             "",
         )?;
         let _guard = self.write_locks.acquire(&input.account_id).await?;
+        write_preview::verify(
+            &event_preview("calendar_create", &input.account_id, &prepared),
+            expected,
+        )?;
         let begin =
             self.begin_write(&input.account_id, "calendar_create", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -108,6 +155,7 @@ impl Runtime {
     async fn calendar_update_result(
         &self,
         input: CalendarUpdateInput,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if let Some(record) =
             self.replay_write("calendar_update", &input.idempotency_key, &input)?
@@ -128,6 +176,7 @@ impl Runtime {
         let meeting = !old.mutation.application.attendees.is_empty()
             || !prepared.event.mutation.application.attendees.is_empty();
         self.require_calendar_capabilities(&backend, meeting).await?;
+        write_preview::verify(&update_preview(&reference.account_id, &prepared), expected)?;
         let request_id = step_client_id(&input.idempotency_key, "request")?;
         let cancel_id = step_client_id(&input.idempotency_key, "cancel-removed")?;
         let request_mime = notification(
@@ -180,6 +229,7 @@ impl Runtime {
     async fn calendar_delete_result(
         &self,
         input: CalendarDeleteInput,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if let Some(record) =
             self.replay_write("calendar_delete", &input.idempotency_key, &input)?
@@ -197,6 +247,11 @@ impl Runtime {
         if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Personal {
             return Err(validation("calendar_delete only accepts personal events"));
         }
+        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
+        write_preview::verify(
+            &event_preview("calendar_delete", &reference.account_id, &prepared),
+            expected,
+        )?;
         let begin = self.begin_write(
             &reference.account_id,
             "calendar_delete",
@@ -216,6 +271,7 @@ impl Runtime {
     async fn calendar_cancel_result(
         &self,
         input: CalendarCancelInput,
+        expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if let Some(record) =
             self.replay_write("calendar_cancel", &input.idempotency_key, &input)?
@@ -235,6 +291,9 @@ impl Runtime {
             return Err(validation("calendar_cancel requires an organizer meeting"));
         }
         let prepared = calendar_prepare::existing(&source, self.clock.now())?;
+        let preview = event_preview("calendar_cancel", &reference.account_id, &prepared)
+            .field("Comment", &input.comment);
+        write_preview::verify(&preview, expected)?;
         let cancel_id = step_client_id(&input.idempotency_key, "cancel")?;
         let mime = required_notification(
             &account.email,

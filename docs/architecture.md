@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
     Client["MCP client"] -->|"JSON-RPC over stdio"| App["app crate"]
+    Shell["Shell or script"] -->|"one-shot CLI"| App
     App --> Runtime["Process-local runtime"]
     Runtime --> Eas["eas crate"]
     Eas -->|"HTTPS EAS 14.1"| Exchange["Profile endpoint"]
@@ -17,13 +18,19 @@ flowchart LR
     Harness --> Eas
 ```
 
-Each MCP client launches its own server process. There is no daemon or shared
-mailbox cache. Mail FolderSync keys, collection SyncKeys, item references,
-cursors, previews, and Calendar Search references exist only in that process. The unit of lifetime
-is an MCP stdio connection rather than an application: clients that retain
-multiple task sessions retain multiple server processes. Closing the transport
-ends the process; editing client configuration does not retroactively close an
-existing connection.
+Each MCP client launches its own server process. An operational CLI command
+constructs the same runtime, executes once, and exits. There is no daemon or
+shared mailbox cache. Mail FolderSync keys, collection SyncKeys, page cursors,
+and prepared previews exist only in that process. The unit of MCP lifetime is a
+stdio connection: clients that retain multiple task sessions retain multiple
+server processes. Closing the transport ends the process; editing client
+configuration does not retroactively close an existing connection.
+
+Mail, event, and attachment references are stateless versioned strings shared by
+MCP and CLI. They encode only an account ID and the minimum EAS locator, never
+message or event content. They are validated on every use and remain usable
+across processes while Exchange still recognizes the target. Snapshot cursors
+remain process-local because they address immutable vectors in RAM.
 
 ## Dependency direction
 
@@ -70,8 +77,9 @@ Each collection owns its SyncKey. An invalid key resets only that collection.
 field preserves the old value; a present empty field clears it.
 
 Mail list and search results become immutable RAM snapshots for 15 minutes, with
-at most 32 snapshots. Mail Search always uses EAS Search. Full bodies and
-attachments use ItemOperations only on demand.
+at most 32 snapshots. Each summary receives a portable mail reference. Mail
+Search always uses EAS Search. Full bodies and attachments use ItemOperations
+only on demand.
 
 Calendar availability does not use FolderSync or Sync. Each request calls
 `ResolveRecipients + Availability`; a 31-day input is divided into requests of
@@ -85,7 +93,7 @@ instead performs a fresh, bounded, metadata-only Calendar Sync because EAS 14.1
 Search has no event-start predicate. The runtime expands Gregorian recurrence
 patterns and exceptions with the event's EAS timezone, filters a maximum 31-day
 range, sorts it, and emits at most 100 compact summaries. No Calendar body or
-snapshot is retained. Compact results receive 15-minute process-local references;
+snapshot is retained. Compact results receive portable event references;
 `calendar_get` fetches one item through ItemOperations.
 
 Calendar lifecycle mutations resolve one referenced item through ItemOperations,
@@ -101,10 +109,15 @@ directly to MeetingResponse. Collection and request IDs are deliberately omitted
 on that protocol path.
 
 Every mail or calendar write takes a per-account advisory file lock shared by
-independent stdio processes. Multi-step Calendar operations checkpoint a
-content-free completed-step bit mask. A safe failure after an earlier success is
-`partial`; an ambiguous network outcome is `unknown`. Neither state is retried
-with a new UUID automatically.
+independent MCP and CLI processes. Runtime preparation validates write access,
+idempotency, input, and referenced source without creating journal state. MCP
+commits immediately. CLI renders the prepared operation safely and requires a
+controlling-terminal confirmation unless `--yes` is present. Commit takes the
+lock, resolves the source again, and returns `SYNC_STALE` if the preview no
+longer matches. Multi-step Calendar operations checkpoint a content-free
+completed-step bit mask. A safe failure after an earlier success is `partial`;
+an ambiguous network outcome is `unknown`. Neither state is retried with a new
+UUID automatically.
 
 ## Persistent state
 
@@ -126,3 +139,17 @@ and five non-recurring Calendar writes. All mutations require account opt-in and
 durable idempotency state before the first external side effect. An explicit
 write-tool call validates and executes immediately; draft or review workflows
 remain in the agent and must not call the mutation tool.
+
+## CLI contract
+
+The CLI exposes 21 account, folder, mail, and Calendar commands over the same
+runtime methods. `sync_status` and `sync_now` remain MCP-only because their
+process-local synchronization state disappears at CLI exit. JSON envelopes go
+to stdout by default; human output is opt-in. Diagnostics, previews, prompts,
+and errors go to stderr.
+
+Normal flags and strict MCP-shaped JSON are mutually exclusive input modes.
+Mail list/search consume snapshot cursors internally and return a flat bounded
+result with `results_truncated`, never `next_cursor`. Object references can move
+between CLI invocations and MCP sessions. The CLI generates a UUID for writes
+unless one is supplied for an intentional idempotent retry.

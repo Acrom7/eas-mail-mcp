@@ -241,11 +241,11 @@ async fn write_failures_are_journaled_and_replayed_without_retry() -> anyhow::Re
         let backend = Arc::new(FakeBackend::new("work"));
         let (runtime, _directory) = runtime(vec![backend.clone()])?;
         let mail_ref = first_mail_ref(&runtime).await?;
-        backend.set_failure(Some(code))?;
+        backend.set_operation_failure(Some("mail_mark_read"), code)?;
         let input = MarkReadInput { mail_ref, is_read: true, idempotency_key: uuid(4) };
         let first = runtime.mail_mark_read(input.clone()).await;
         assert_eq!(first.error.map(|error| error.code), Some(code));
-        backend.set_failure(None)?;
+        backend.set_operation_failure(None, code)?;
         let repeated = runtime.mail_mark_read(input).await;
         assert_eq!(repeated.data.map(|value| value.status), Some(expected));
         assert!(backend.operations()?.is_empty());

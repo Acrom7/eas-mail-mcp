@@ -245,6 +245,6 @@ pub struct CalendarOperationResult {
     pub completed_steps: Vec<String>,
     /// Safe status text.
     pub message: String,
-    /// New process-local reference when a resulting event remains available.
+    /// New portable reference when a resulting event remains available.
     pub event_ref: Option<String>,
 }

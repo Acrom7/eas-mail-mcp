@@ -41,7 +41,14 @@ operator denylist. Source releases contain no binaries or ignored files.
 - Independent stdio processes serialize mail and Calendar writes per account.
 - Write tools require account opt-in and an idempotency UUID. Client identity and
   version are diagnostic only.
-- An explicit write-tool call executes immediately after validation. The server
-  does not add an elicitation or preview step.
+- An explicit MCP write-tool call executes immediately after validation. The
+  server does not add an elicitation or preview step.
+- CLI writes prepare the final operation, render an escaped preview to stderr,
+  and require a controlling-terminal confirmation unless `--yes` is explicit.
+  No journal or external mutation is created before confirmation.
 - Agents must not call a write tool when the user requested only a draft or
   review. Client-level approval remains optional user-experience policy.
+- Portable object references contain only bounded account and EAS locator
+  metadata. They are strictly decoded but unsigned and have no TTL inside the
+  documented same-user trust boundary. RAM snapshot cursors retain a 15-minute
+  TTL and never cross processes.

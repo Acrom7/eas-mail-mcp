@@ -102,6 +102,47 @@ pub(super) fn require_interactive(interactive: bool) -> Result<()> {
     }
 }
 
+pub(super) fn confirm_controlling_tty(label: &str) -> Result<bool> {
+    if std::io::stdin().is_terminal() {
+        return StdioTerminal::detect().confirm(label, false);
+    }
+    let mut terminal = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .map_err(|_| interaction_error())?;
+    let reader = terminal.try_clone().map_err(|_| interaction_error())?;
+    confirm_io(std::io::BufReader::new(reader), &mut terminal, label)
+}
+
+fn confirm_io(
+    mut reader: impl std::io::BufRead,
+    writer: &mut impl std::io::Write,
+    label: &str,
+) -> Result<bool> {
+    loop {
+        write!(writer, "{label} [y/N]: ")
+            .and_then(|()| writer.flush())
+            .map_err(|_| terminal_error("cannot write terminal prompt"))?;
+        let mut answer = String::new();
+        reader.read_line(&mut answer).map_err(|_| terminal_error("cannot read terminal input"))?;
+        match answer.trim().to_ascii_lowercase().as_str() {
+            "" | "n" | "no" => return Ok(false),
+            "y" | "yes" => return Ok(true),
+            _ => writeln!(writer, "Enter yes or no")
+                .map_err(|_| terminal_error("cannot write terminal prompt"))?,
+        }
+    }
+}
+
+fn interaction_error() -> AppError {
+    AppError::new(
+        ErrorCode::InteractiveRequired,
+        "write confirmation requires a controlling terminal or --yes",
+    )
+    .remediation("Review the operation and pass --yes only for explicit automation")
+}
+
 fn terminal_error(message: &str) -> AppError {
     AppError::new(ErrorCode::StorageError, message)
 }
@@ -185,6 +226,17 @@ pub(super) mod testing {
             .err()
             .ok_or_else(|| anyhow::anyhow!("disabled terminal unexpectedly accepted a password"))?;
         assert_eq!(password_error.envelope.code, ErrorCode::InteractiveRequired);
+        Ok(())
+    }
+
+    #[test]
+    fn controlling_terminal_confirmation_accepts_retries_and_declines_eof() -> anyhow::Result<()> {
+        let mut accepted = Vec::new();
+        assert!(confirm_io("invalid\nyes\n".as_bytes(), &mut accepted, "Execute")?);
+        assert!(String::from_utf8(accepted)?.contains("Enter yes or no"));
+
+        let mut declined = Vec::new();
+        assert!(!confirm_io("".as_bytes(), &mut declined, "Execute")?);
         Ok(())
     }
 }

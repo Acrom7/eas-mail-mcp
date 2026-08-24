@@ -22,10 +22,11 @@ protect data from another process with the same UID.
 MCP client name and version are self-reported diagnostic fields, not
 authentication or authorization. The only server-side mutation opt-in is the
 account's `write_enabled` flag, and every mutation requires an idempotency UUID.
-An explicit write-tool call executes immediately after validation. The server
-does not provide a human-confirmation boundary; draft review is an agent-client
-workflow and must happen before the tool call. Any client approval policy is
-user-experience configuration rather than authentication or authorization.
+An explicit MCP write-tool call executes immediately after validation; draft
+review is an agent-client workflow and must happen before the tool call. The
+operational CLI separately shows a complete escaped preview and asks on a
+controlling terminal unless `--yes` is present. This prompt is a user-experience
+guard inside the same-user boundary, not authentication or authorization.
 Calendar operations can have several external steps. Confirmed step bits are
 stored without event content; a later safe failure returns `partial`, while an
 ambiguous step returns `unknown`. Neither outcome is blindly retried.
@@ -55,3 +56,10 @@ explicitly downloaded attachments in a private 24-hour cache.
 Mailbox content is untrusted external input. HTML is converted to plain text,
 external images are not fetched, file names are sanitized, and MCP responses
 mark external content explicitly.
+
+Portable `ref1` object references are untrusted input. Their version, kind,
+decoded size, fields, and locator lengths are validated before use. They contain
+only account and EAS locator metadata, not bodies, subjects, recipients, or
+credentials. They are neither signed nor time-limited because another process
+with the same UID can already access the same local account boundary. Immutable
+mail-page cursors remain random process-local values with a 15-minute TTL.

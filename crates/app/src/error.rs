@@ -22,7 +22,7 @@ pub enum ErrorCode {
     PolicyBlocked,
     /// Requested object is no longer available.
     NotFound,
-    /// Cursor or opaque reference has expired.
+    /// A process-local snapshot cursor has expired.
     ReferenceExpired,
     /// Input violates an application limit.
     ValidationFailed,

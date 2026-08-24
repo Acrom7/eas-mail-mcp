@@ -284,7 +284,7 @@ pub struct CalendarSlotsData {
 /// Compact own-calendar Search result.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CalendarEventSummary {
-    /// Process-local opaque reference.
+    /// Portable opaque event reference.
     pub event_ref: String,
     /// Owning account ID.
     pub account_id: String,
@@ -320,7 +320,7 @@ pub struct CalendarSearchData {
 /// Full own-calendar event fetched on demand.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CalendarEvent {
-    /// Process-local opaque reference.
+    /// Portable opaque event reference.
     pub event_ref: String,
     /// Owning account ID.
     pub account_id: String,

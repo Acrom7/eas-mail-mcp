@@ -3,6 +3,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+#[path = "fake_backend/fixtures.rs"]
+mod fixtures;
 #[path = "fake_backend/mail.rs"]
 mod mail_fixture;
 
@@ -13,11 +15,13 @@ use eas_mail_mcp::backend::{
 };
 use eas_mail_mcp::{AppError, ErrorCode, Result};
 use eas_mail_protocol::{
-    CalendarApplication, CalendarAttendee, CalendarFields, CandidateAvailability, CollectionKind,
-    Folder, FreeBusyStatus, MeetingResponseChoice, Patch, ProfileKey, RecipientAvailability,
-    RecipientResolution, ResolvedRecipient,
+    CandidateAvailability, Folder, FreeBusyStatus, MeetingResponseChoice, ProfileKey,
+    RecipientAvailability, RecipientResolution, ResolvedRecipient,
 };
 
+use self::fixtures::{
+    event, event_from_application, folders, personal_event, received_event, recurring_event,
+};
 use self::mail_fixture::mail;
 
 /// Deterministic high-level backend used by MCP black-box tests.
@@ -38,11 +42,15 @@ impl FakeBackend {
     /// Creates a successful backend with write tools enabled.
     #[must_use]
     pub fn new(account_id: &str) -> Self {
-        let calendar_items =
-            [event(account_id), received_event(account_id), recurring_event(account_id)]
-                .into_iter()
-                .filter_map(|value| value.server_id.clone().map(|key| (key, value)))
-                .collect();
+        let calendar_items = [
+            event(account_id),
+            personal_event(account_id),
+            received_event(account_id),
+            recurring_event(account_id),
+        ]
+        .into_iter()
+        .filter_map(|value| value.server_id.clone().map(|key| (key, value)))
+        .collect();
         Self {
             account: BackendAccount {
                 account_id: account_id.into(),
@@ -300,6 +308,8 @@ impl AccountBackend for FakeBackend {
             .then(|| {
                 if query == "received" {
                     received_event(&self.account.account_id)
+                } else if query == "personal" {
+                    personal_event(&self.account.account_id)
                 } else if query == "recurring" {
                     recurring_event(&self.account.account_id)
                 } else {
@@ -388,127 +398,24 @@ impl AccountBackend for FakeBackend {
     }
 
     async fn mark_read(&self, _: &MailSource, _: bool) -> Result<()> {
-        self.check().await?;
+        self.check_operation("mail_mark_read").await?;
         self.record("mail_mark_read")
     }
 
     async fn send(&self, _: &str, _: &OutgoingMail) -> Result<()> {
-        self.check().await?;
+        self.check_operation("mail_send").await?;
         self.record("mail_send")
     }
 
     async fn reply(&self, _: &str, _: &MailSource, _: &OutgoingMail) -> Result<()> {
-        self.check().await?;
+        self.check_operation("mail_reply").await?;
         self.record("mail_reply")
     }
 
     async fn forward(&self, _: &str, _: &MailSource, _: &OutgoingMail) -> Result<()> {
-        self.check().await?;
+        self.check_operation("mail_forward").await?;
         self.record("mail_forward")
     }
-}
-
-fn folders() -> Vec<Folder> {
-    vec![
-        Folder {
-            server_id: "inbox".into(),
-            parent_id: "0".into(),
-            display_name: "Inbox".into(),
-            folder_type: 2,
-            kind: Some(CollectionKind::Mail),
-        },
-        Folder {
-            server_id: "calendar".into(),
-            parent_id: "0".into(),
-            display_name: "Calendar".into(),
-            folder_type: 8,
-            kind: Some(CollectionKind::Calendar),
-        },
-    ]
-}
-
-fn event(account_id: &str) -> BackendEvent {
-    BackendEvent {
-        account_id: account_id.into(),
-        long_id: "event-1".into(),
-        collection_id: Some("calendar".into()),
-        server_id: Some("event-1".into()),
-        fields: CalendarFields {
-            subject: Patch::Value("Planning".into()),
-            body: Patch::Value("<p>Agenda</p>".into()),
-            body_truncated: Patch::Value(false),
-            starts_at: Patch::Value(chrono::DateTime::from_timestamp(1_700_010_000, 0)),
-            ends_at: Patch::Value(chrono::DateTime::from_timestamp(1_700_013_600, 0)),
-            all_day: Patch::Value(false),
-            location: Patch::Value("Room 1".into()),
-            organizer: Patch::Value("owner@example.invalid".into()),
-            organizer_email: Patch::Value(format!("{account_id}@example.invalid")),
-            attendees: Patch::Value(vec![CalendarAttendee {
-                email: "guest@example.invalid".into(),
-                name: "Guest".into(),
-                attendee_type: 1,
-                attendee_status: 0,
-            }]),
-            reminder_minutes: Patch::Value(15),
-            recurrence: Patch::Value(BTreeMap::new()),
-            exceptions: Patch::Value(Vec::new()),
-            meeting_status: Patch::Value(1),
-            uid: Patch::Value("event-uid@example.invalid".into()),
-            dt_stamp: Patch::Value(chrono::DateTime::from_timestamp(1_700_000_000, 0)),
-            time_zone: Patch::Value("AAAA".into()),
-            busy_status: Patch::Value(2),
-            response_requested: Patch::Value(true),
-            response_type: Patch::Value(5),
-        },
-    }
-}
-
-fn event_from_application(account_id: &str, item: &CalendarApplication) -> BackendEvent {
-    BackendEvent {
-        account_id: account_id.into(),
-        long_id: String::new(),
-        collection_id: Some("calendar".into()),
-        server_id: Some("event-created".into()),
-        fields: CalendarFields {
-            subject: Patch::Value(item.subject.clone()),
-            body: Patch::Value(item.body.clone()),
-            body_truncated: Patch::Value(false),
-            starts_at: Patch::Value(Some(item.starts_at)),
-            ends_at: Patch::Value(Some(item.ends_at)),
-            all_day: Patch::Value(item.all_day),
-            location: Patch::Value(item.location.clone()),
-            organizer_email: Patch::Value(format!("{account_id}@example.invalid")),
-            attendees: Patch::Value(item.attendees.clone()),
-            reminder_minutes: item.reminder_minutes.map_or(Patch::Missing, Patch::Value),
-            recurrence: Patch::Value(BTreeMap::new()),
-            exceptions: Patch::Value(Vec::new()),
-            meeting_status: Patch::Value(item.meeting_status),
-            uid: Patch::Value(item.uid.clone()),
-            dt_stamp: Patch::Value(Some(item.dt_stamp)),
-            time_zone: Patch::Value(item.time_zone.clone()),
-            busy_status: Patch::Value(item.busy_status),
-            response_requested: Patch::Value(item.response_requested),
-            ..CalendarFields::default()
-        },
-    }
-}
-
-fn received_event(account_id: &str) -> BackendEvent {
-    let mut value = event(account_id);
-    value.long_id = "received-event".into();
-    value.server_id = Some("received-event".into());
-    value.fields.organizer = Patch::Value("External Organizer".into());
-    value.fields.organizer_email = Patch::Value("organizer@example.invalid".into());
-    value.fields.meeting_status = Patch::Value(3);
-    value
-}
-
-fn recurring_event(account_id: &str) -> BackendEvent {
-    let mut value = event(account_id);
-    value.long_id = "recurring-event".into();
-    value.server_id = Some("recurring-event".into());
-    value.fields.recurrence = Patch::Value(BTreeMap::from([("type".into(), "1".into())]));
-    value
 }
 
 fn failure(code: ErrorCode) -> AppError {

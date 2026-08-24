@@ -1,8 +1,9 @@
 use serde::Serialize;
 
 use super::Runtime;
-use super::outgoing::{forward_message, reply_message, validate_message};
-use crate::backend::OutgoingMail;
+use super::mail_write_preview::{forward, mark_read_preview, message_preview, send_message};
+use super::outgoing::{reply_message, validate_message};
+use super::write_preview;
 use crate::journal::payload_fingerprint;
 use crate::model::{
     ApiResponse, MailForwardInput, MailReplyInput, MailSendInput, MarkReadInput, OperationResult,
@@ -13,31 +14,70 @@ use crate::{AppError, ErrorCode, JournalBegin, JournalRecord, OperationStatus, R
 impl Runtime {
     /// Changes read state through an idempotent EAS Sync mutation.
     pub async fn mail_mark_read(&self, input: MarkReadInput) -> ApiResponse<OperationResult> {
-        Self::response(self.mark_read_result(input).await)
+        Self::response(self.mark_read_result(input, None).await)
     }
 
     /// Sends one plain-text message with durable idempotency metadata.
     pub async fn mail_send(&self, input: MailSendInput) -> ApiResponse<OperationResult> {
-        Self::response(self.send_result(input).await)
+        Self::response(self.send_result(input, None).await)
     }
 
-    /// Replies to a process-local source message.
+    /// Replies to a message selected by a portable reference.
     pub async fn mail_reply(&self, input: MailReplyInput) -> ApiResponse<OperationResult> {
-        Self::response(self.reply_result(input).await)
+        Self::response(self.reply_result(input, None).await)
     }
 
-    /// Forwards a process-local source message.
+    /// Forwards a message selected by a portable reference.
     pub async fn mail_forward(&self, input: MailForwardInput) -> ApiResponse<OperationResult> {
-        Self::response(self.forward_result(input).await)
+        Self::response(self.forward_result(input, None).await)
+    }
+
+    pub(crate) async fn commit_cli_mail_mark_read(
+        &self,
+        input: MarkReadInput,
+        expected: &str,
+    ) -> ApiResponse<OperationResult> {
+        Self::response(self.mark_read_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_mail_send(
+        &self,
+        input: MailSendInput,
+        expected: &str,
+    ) -> ApiResponse<OperationResult> {
+        Self::response(self.send_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_mail_reply(
+        &self,
+        input: MailReplyInput,
+        expected: &str,
+    ) -> ApiResponse<OperationResult> {
+        Self::response(self.reply_result(input, Some(expected)).await)
+    }
+
+    pub(crate) async fn commit_cli_mail_forward(
+        &self,
+        input: MailForwardInput,
+        expected: &str,
+    ) -> ApiResponse<OperationResult> {
+        Self::response(self.forward_result(input, Some(expected)).await)
     }
 
     async fn mark_read_result(
         &self,
         input: MarkReadInput,
+        expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
+        if let Some(record) = self.replay_write("mail_mark_read", &input.idempotency_key, &input)? {
+            return Ok((existing_result(record), Vec::new()));
+        }
         let mail = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&mail.account_id)?;
         let _guard = self.write_locks.acquire(&mail.account_id).await?;
+        let fetched =
+            self.account_result(&mail.account_id, backend.fetch_mail(&mail.source, 1).await)?;
+        write_preview::verify(&mark_read_preview(&fetched, input.is_read), expected)?;
         let begin =
             self.begin_write(&mail.account_id, "mail_mark_read", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -51,17 +91,19 @@ impl Runtime {
     async fn send_result(
         &self,
         input: MailSendInput,
+        expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        let message = OutgoingMail {
-            to: input.to.clone(),
-            cc: input.cc.clone(),
-            bcc: input.bcc.clone(),
-            subject: input.subject.clone(),
-            body: input.body.clone(),
-        };
+        if let Some(record) = self.replay_write("mail_send", &input.idempotency_key, &input)? {
+            return Ok((existing_result(record), Vec::new()));
+        }
+        let message = send_message(&input);
         validate_message(&message)?;
         let backend = self.require_write(&input.account_id)?;
         let _guard = self.write_locks.acquire(&input.account_id).await?;
+        write_preview::verify(
+            &message_preview("mail_send", &input.account_id, &message),
+            expected,
+        )?;
         let begin =
             self.begin_write(&input.account_id, "mail_send", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -75,16 +117,24 @@ impl Runtime {
     async fn reply_result(
         &self,
         input: MailReplyInput,
+        expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
+        if let Some(record) = self.replay_write("mail_reply", &input.idempotency_key, &input)? {
+            return Ok((existing_result(record), Vec::new()));
+        }
         let reference = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&reference.account_id)?;
+        let _guard = self.write_locks.acquire(&reference.account_id).await?;
         let mail = self.account_result(
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
         let message = reply_message(&mail, &backend.account().email, &input)?;
         validate_message(&message)?;
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        write_preview::verify(
+            &message_preview("mail_reply", &reference.account_id, &message),
+            expected,
+        )?;
         let begin =
             self.begin_write(&reference.account_id, "mail_reply", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -98,19 +148,24 @@ impl Runtime {
     async fn forward_result(
         &self,
         input: MailForwardInput,
+        expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
+        if let Some(record) = self.replay_write("mail_forward", &input.idempotency_key, &input)? {
+            return Ok((existing_result(record), Vec::new()));
+        }
         let reference = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&reference.account_id)?;
+        let _guard = self.write_locks.acquire(&reference.account_id).await?;
         let mail = self.account_result(
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
-        let mut message = forward_message(&mail, &input.body);
-        message.to.clone_from(&input.to);
-        message.cc.clone_from(&input.cc);
-        message.bcc.clone_from(&input.bcc);
+        let message = forward(&mail, &input);
         validate_message(&message)?;
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        write_preview::verify(
+            &message_preview("mail_forward", &reference.account_id, &message),
+            expected,
+        )?;
         let begin = self.begin_write(
             &reference.account_id,
             "mail_forward",
@@ -210,7 +265,7 @@ impl Runtime {
     }
 }
 
-fn existing_result(record: JournalRecord) -> OperationResult {
+pub(super) fn existing_result(record: JournalRecord) -> OperationResult {
     let (status, message) = match record.status {
         OperationStatus::Succeeded => {
             (OperationState::Succeeded, "the prior operation was confirmed")

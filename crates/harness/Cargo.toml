@@ -19,6 +19,11 @@ path = "src/bin/harness-server.rs"
 test = false
 
 [[bin]]
+name = "harness-cli"
+path = "src/bin/harness-cli.rs"
+test = false
+
+[[bin]]
 name = "direct-live-harness"
 path = "src/bin/direct-live-harness.rs"
 required-features = ["live"]
@@ -61,8 +66,8 @@ required-features = ["soak"]
 test = false
 
 [dependencies]
-eas-mail-protocol = { version = "=0.2.0", path = "../eas" }
-eas-mail-mcp = { version = "=0.2.0", path = "../app" }
+eas-mail-protocol = { version = "=0.3.0", path = "../eas" }
+eas-mail-mcp = { version = "=0.3.0", path = "../app" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true

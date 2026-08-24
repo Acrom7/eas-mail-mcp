@@ -219,6 +219,17 @@ After restarting the AI client, verify the MCP with the read-only
 an installation test unless the account owner explicitly enabled and requested
 that operation.
 
+The same account can be checked without an AI client:
+
+```bash
+eas-mail-mcp --human account list
+eas-mail-mcp --human folder list
+eas-mail-mcp --human mail list --limit 5
+```
+
+See the [command-line reference](cli.md) for mail and Calendar reads, portable
+references, writes with confirmation, JSON automation, and exit codes.
+
 Every active MCP connection owns one `eas-mail-mcp serve` process. Multiple
 client tasks can therefore create multiple lightweight processes. They should
 exit when their stdio connections close; restart the client after removing or

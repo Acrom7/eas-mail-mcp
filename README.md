@@ -2,10 +2,12 @@
 
 ![EAS Mail MCP connects Exchange mail and calendars to local AI tools](docs/assets/readme-hero.png)
 
-`eas-mail-mcp` is a local, native MCP server that gives AI agents structured
-access to mail and calendars on Exchange ActiveSync 14.1 servers. It is designed
-for managed or on-premises Exchange environments where EAS is available and a
-hosted connector, Microsoft Graph, or a local mailbox database is undesirable.
+`eas-mail-mcp` is a local, native MCP server and command-line client for mail and
+calendars on Exchange ActiveSync 14.1 servers. AI agents use typed MCP tools;
+people and scripts can use the same runtime through one-shot CLI commands. It is
+designed for managed or on-premises Exchange environments where EAS is available
+and a hosted connector, Microsoft Graph, or a local mailbox database is
+undesirable.
 
 The public npm packages contain no operator server, domain, realm, certificate,
 account, or password. Endpoint profiles are created or imported locally, and
@@ -16,7 +18,7 @@ npm install -g eas-mail-mcp
 eas-mail-mcp setup
 ```
 
-[Setup guide](docs/getting-started.md) | [Инструкция на русском](docs/installation.ru.md) | [Security](SECURITY.md)
+[Setup guide](docs/getting-started.md) | [CLI reference](docs/cli.md) | [Инструкция на русском](docs/installation.ru.md) | [Security](SECURITY.md)
 
 ## What it does
 
@@ -40,9 +42,9 @@ Typical requests include:
 - "Show my agenda for tomorrow without meeting bodies."
 - "Draft a reply, show it to me, and send it only after I approve the text."
 
-The MCP executes write tools immediately when an agent calls them. Writes are
-disabled per account by default, so review and approval behavior should also be
-defined in the AI client's operating instructions.
+The MCP executes write tools immediately when an agent calls them. The CLI shows
+a complete escaped preview and asks before committing unless `--yes` is passed.
+Writes are disabled per account by default in both modes.
 
 ## Why this design
 
@@ -65,25 +67,29 @@ cross-machine guarantees.
 
 ## How it works
 
-Each MCP client starts `eas-mail-mcp serve` over stdio. The process translates
-typed MCP calls into EAS commands, validates WBXML responses, performs calendar
-and slot calculations, and returns compact structured results.
+Each MCP client starts `eas-mail-mcp serve` over stdio. A CLI invocation starts
+the same runtime for one command and then exits. Both paths translate typed
+inputs into EAS commands, validate WBXML responses, perform calendar and slot
+calculations, and return compact structured results.
 
 ```mermaid
 flowchart LR
     User["User"] --> Client["Codex / Claude Code / OpenCode"]
     Client -->|"MCP over stdio"| MCP["eas-mail-mcp<br/>native Rust process"]
+    User --> Shell["Terminal / script"]
+    Shell -->|"one CLI command"| MCP
     MCP -->|"EAS 14.1 over HTTPS"| Exchange["Exchange server"]
     MCP --> Keychain["macOS Keychain"]
     MCP --> Config["Local profiles and account config"]
     MCP --> Journal["Content-free write journal"]
 ```
 
-There is one lightweight process per active MCP connection. Process-local mail
-state, cursors, and opaque references live in RAM and disappear when the client
-closes the connection. Full message bodies and attachments are fetched only on
-request. SQLite stores only idempotency metadata for writes, not mailbox or
-calendar content.
+There is one lightweight process per active MCP connection or CLI invocation.
+Mail synchronization state and page cursors live only in RAM. Object references
+are portable opaque strings, so a mail or event selected by one process can be
+used by another while the Exchange item still exists. Full message bodies and
+attachments are fetched only on request. SQLite stores only idempotency metadata
+for writes, not mailbox or calendar content.
 
 Calendar availability never exposes another person's meeting subjects or
 bodies. `calendar_find_slots` performs participant resolution, timezone and DST
@@ -119,6 +125,25 @@ repair accounts, update passwords, change write access, or manage clients.
 See [Getting started](docs/getting-started.md) for the complete profile format,
 multi-account workflow, manual MCP configuration, storage locations, updates,
 and troubleshooting.
+
+## Command-line mode
+
+Operational commands use the same accounts, credentials, validation, EAS
+implementation, references, and idempotency journal as MCP:
+
+```bash
+eas-mail-mcp --human mail list --limit 10
+eas-mail-mcp mail search "quarterly report" | jq '.data.items'
+eas-mail-mcp --human calendar agenda \
+  --from 2026-08-24 --to 2026-08-28 --time-zone Europe/Belgrade
+```
+
+JSON envelopes are printed to stdout by default. Human output is opt-in with
+`--human`; warnings, write previews, confirmations, and errors go to stderr so
+stdout remains safe for pipes. See the [CLI reference](docs/cli.md) for all 21
+commands, JSON input, pagination, portable references, write confirmation, and
+exit codes. `sync_status` and `sync_now` remain MCP-only because their state is
+process-local.
 
 ## MCP tools
 
@@ -157,7 +182,8 @@ loaded only through dedicated tools. Mail and calendar content is marked as
 - Profiles contain endpoint metadata and optional public CA certificates, but
   never credentials.
 - Mail and calendar writes are disabled independently for each account by
-  default and require caller-provided idempotency UUIDs.
+  default. MCP callers provide idempotency UUIDs; the CLI generates one unless
+  the caller supplies `--idempotency-key`.
 - Ambiguous network outcomes are not blindly retried.
 - Processes running as the same macOS user are inside the trusted local
   boundary; MCP client names and client-side approval prompts are not
@@ -168,7 +194,7 @@ or an externally hosted AI model.
 
 ## Compatibility and limits
 
-`0.2.0` supports macOS arm64 and x86_64. Windows and Linux are not supported.
+`0.3.0` supports macOS arm64 and x86_64. Windows and Linux are not supported.
 
 The runtime intentionally fixes HTTPS, EAS 14.1,
 `/Microsoft-Server-ActiveSync`, and `DeviceType=EasMailMCP`. It does not support
@@ -182,6 +208,7 @@ can still prevent a technically valid profile from connecting.
 ## Documentation
 
 - [Getting started](docs/getting-started.md): installation, setup, accounts, and clients
+- [CLI reference](docs/cli.md): operational commands, input/output, references, and writes
 - [Установка на русском](docs/installation.ru.md): краткая русская инструкция
 - [Agent installation](docs/agent-installation.ru.md): безопасная передача настройки ИИ-агенту
 - [Runtime profiles](docs/runtime-profiles.md): portable profile schema and trust modes

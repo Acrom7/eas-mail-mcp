@@ -64,7 +64,7 @@ impl Runtime {
         Self::response(self.mail_get_result(input).await)
     }
 
-    /// Returns attachment metadata and process-local opaque references.
+    /// Returns attachment metadata and portable opaque references.
     pub async fn mail_list_attachments(
         &self,
         input: MailAttachmentsInput,

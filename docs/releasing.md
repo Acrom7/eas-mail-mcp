@@ -20,8 +20,9 @@ eas-mail-mcp setup
 
 `install-candidate` installs the root and matching native tarballs from
 `dist/npm` into the normal global npm prefix. Exercise first-run setup,
-multi-account setup, client configuration, reads, and permitted self-writes.
-Restart configured clients after changing their MCP configuration.
+multi-account setup, client configuration, MCP reads, operational CLI reads,
+portable references across CLI processes, and permitted self-writes. Restart
+configured clients after changing their MCP configuration.
 
 Each active MCP stdio connection owns one server process. During the manual
 check, verify that opening one connection creates one process and that closing
