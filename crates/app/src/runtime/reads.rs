@@ -9,7 +9,7 @@ use crate::model::{
     MailGetInput, MailListInput, MailPage, MailSearchInput, SyncData, SyncReport,
 };
 use crate::references::AttachmentReference;
-use crate::sanitize::limit;
+use crate::sanitize::{limit, safe_filename};
 use crate::{ApiResponse, AppError, ErrorCode, Result};
 
 const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
@@ -229,22 +229,20 @@ impl Runtime {
         }
         let mut attachments = Vec::new();
         for item in list(&mail.fields.attachments) {
+            let display_name = safe_filename(&item.display_name);
             let reference = AttachmentReference {
                 account_id: mail.account_id.clone(),
                 file_reference: item.file_reference,
-                display_name: item.display_name,
-                content_type: item.content_type,
-                size: item.size,
-                is_inline: item.is_inline,
+                display_name: display_name.clone(),
             };
-            let attachment_ref = self.references.insert_attachment(reference.clone())?;
+            let attachment_ref = self.references.insert_attachment(reference)?;
             attachments.push(AttachmentView {
                 attachment_ref,
-                account_id: reference.account_id,
-                display_name: reference.display_name,
-                size: reference.size,
-                content_type: reference.content_type,
-                is_inline: reference.is_inline,
+                account_id: mail.account_id.clone(),
+                display_name,
+                size: item.size,
+                content_type: item.content_type,
+                is_inline: item.is_inline,
                 untrusted_external_content: true,
             });
         }

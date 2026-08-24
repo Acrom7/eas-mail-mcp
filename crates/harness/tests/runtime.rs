@@ -158,12 +158,13 @@ async fn direct_read_remote_wipe_purges_references_files_and_journal() -> anyhow
         runtime.mail_get(MailGetInput { mail_ref: mail_ref.clone(), body_limit: None }).await;
     anyhow::ensure!(wiped_read.error.is_some_and(|error| error.code == ErrorCode::RemoteWipe));
     anyhow::ensure!(!std::path::Path::new(&path).exists());
-    let expired = runtime.mail_get(MailGetInput { mail_ref, body_limit: None }).await;
-    anyhow::ensure!(expired.error.is_some_and(|error| error.code == ErrorCode::ReferenceExpired));
+    let blocked = runtime.mail_get(MailGetInput { mail_ref, body_limit: None }).await;
+    anyhow::ensure!(blocked.error.is_some_and(|error| error.code == ErrorCode::RemoteWipe));
 
     wiped.set_failure(None)?;
-    anyhow::ensure!(runtime.mail_send(send_input("before wipe")).await.error.is_none());
-    anyhow::ensure!(wiped.operations()?.len() == 2);
+    let write = runtime.mail_send(send_input("after wipe")).await;
+    anyhow::ensure!(write.error.is_some_and(|error| error.code == ErrorCode::RemoteWipe));
+    anyhow::ensure!(wiped.operations()?.len() == 1);
     Ok(())
 }
 
@@ -177,8 +178,9 @@ async fn write_remote_wipe_removes_pending_idempotency_state() -> anyhow::Result
     let response = runtime.mail_send(send_input("wipe")).await;
     anyhow::ensure!(response.error.is_some_and(|error| error.code == ErrorCode::RemoteWipe));
     wiped.set_failure(None)?;
-    anyhow::ensure!(runtime.mail_send(send_input("wipe")).await.error.is_none());
-    anyhow::ensure!(wiped.operations()?.len() == 1);
+    let blocked = runtime.mail_send(send_input("wipe")).await;
+    anyhow::ensure!(blocked.error.is_some_and(|error| error.code == ErrorCode::RemoteWipe));
+    anyhow::ensure!(wiped.operations()?.is_empty());
     Ok(())
 }
 

@@ -40,6 +40,7 @@ pub struct Runtime {
     pub(super) attachments: AttachmentCache,
     pub(super) clock: Arc<dyn Clock>,
     pub(super) sync_reports: Mutex<BTreeMap<String, SyncReport>>,
+    disabled_accounts: Mutex<BTreeSet<String>>,
     pub(super) write_locks: WriteLocks,
 }
 
@@ -127,6 +128,7 @@ impl Runtime {
             attachments,
             clock,
             sync_reports: Mutex::new(BTreeMap::new()),
+            disabled_accounts: Mutex::new(BTreeSet::new()),
             write_locks,
         })
     }
@@ -141,9 +143,13 @@ impl Runtime {
                 "no enabled mail accounts are configured",
             ));
         }
+        let disabled = self.disabled_accounts.lock().map_err(|_| state_error())?;
         let ids = requested.map(|values| values.iter().collect::<BTreeSet<_>>());
         if let Some(ids) = &ids {
             for id in ids {
+                if disabled.contains(id.as_str()) {
+                    return Err(remote_wiped(id));
+                }
                 if !self.backends.contains_key(id.as_str()) {
                     return Err(AppError::new(
                         ErrorCode::ValidationFailed,
@@ -153,15 +159,28 @@ impl Runtime {
                 }
             }
         }
-        Ok(self
+        let selected = self
             .backends
             .iter()
-            .filter(|(id, _)| ids.as_ref().is_none_or(|values| values.contains(id)))
+            .filter(|(id, _)| {
+                !disabled.contains(id.as_str())
+                    && ids.as_ref().is_none_or(|values| values.contains(id))
+            })
             .map(|(_, backend)| Arc::clone(backend))
-            .collect())
+            .collect::<Vec<_>>();
+        if selected.is_empty() && !disabled.is_empty() {
+            return Err(AppError::new(
+                ErrorCode::RemoteWipe,
+                "Exchange removed local account data; configure the account again",
+            ));
+        }
+        Ok(selected)
     }
 
     pub(super) fn backend(&self, account_id: &str) -> Result<Arc<dyn AccountBackend>> {
+        if self.disabled_accounts.lock().map_err(|_| state_error())?.contains(account_id) {
+            return Err(remote_wiped(account_id));
+        }
         self.backends.get(account_id).cloned().ok_or_else(|| {
             AppError::new(ErrorCode::NotFound, "account is not configured or enabled")
                 .account(account_id)
@@ -221,6 +240,7 @@ impl Runtime {
     }
 
     fn purge_account(&self, account_id: &str) -> Result<()> {
+        self.disabled_accounts.lock().map_err(|_| state_error())?.insert(account_id.to_owned());
         let references = self.references.purge_account(account_id);
         let journal = self.journal.purge_account(account_id).map(|_| ());
         let attachments = self.attachments.purge_account(account_id);
@@ -228,6 +248,18 @@ impl Runtime {
         journal?;
         attachments
     }
+}
+
+fn state_error() -> AppError {
+    AppError::new(ErrorCode::StorageError, "process-local account state is unavailable")
+}
+
+fn remote_wiped(account_id: &str) -> AppError {
+    AppError::new(
+        ErrorCode::RemoteWipe,
+        "Exchange removed local account data; configure the account again",
+    )
+    .account(account_id)
 }
 
 impl Drop for Runtime {

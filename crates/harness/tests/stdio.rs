@@ -364,6 +364,47 @@ async fn black_box_independent_stdio_processes_start_cleanly() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn object_references_cross_independent_stdio_processes() -> Result<()> {
+    let first_transport =
+        TokioChildProcess::new(tokio::process::Command::new(env!("CARGO_BIN_EXE_harness-server")))?;
+    let first = ().serve(first_transport).await?;
+    let first_peer = first.peer().clone();
+    let mail_page = call(&first_peer, "mail_list", Some(json!({ "limit": 1 }))).await?;
+    let mail_ref = text_at(&mail_page, "/data/items/0/mail_ref")?.to_owned();
+    let attachments =
+        call(&first_peer, "mail_list_attachments", Some(json!({ "mail_ref": mail_ref }))).await?;
+    let attachment_ref = text_at(&attachments, "/data/attachments/0/attachment_ref")?.to_owned();
+    let events = call(&first_peer, "calendar_search", Some(json!({ "query": "planning" }))).await?;
+    let event_ref = text_at(&events, "/data/items/0/event_ref")?.to_owned();
+    first.cancel().await?;
+
+    let second_transport =
+        TokioChildProcess::new(tokio::process::Command::new(env!("CARGO_BIN_EXE_harness-server")))?;
+    let second = ().serve(second_transport).await?;
+    let second_peer = second.peer().clone();
+    call(&second_peer, "mail_get", Some(json!({ "mail_ref": mail_ref }))).await?;
+    call(
+        &second_peer,
+        "mail_download_attachment",
+        Some(json!({ "attachment_ref": attachment_ref })),
+    )
+    .await?;
+    call(&second_peer, "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
+    call(
+        &second_peer,
+        "mail_mark_read",
+        Some(json!({
+            "mail_ref": mail_ref,
+            "is_read": true,
+            "idempotency_key": "00000000-0000-4000-8000-000000000099"
+        })),
+    )
+    .await?;
+    second.cancel().await?;
+    Ok(())
+}
+
 async fn call(peer: &Peer<RoleClient>, name: &str, input: Option<Value>) -> Result<Value> {
     let result = call_result(peer, name, input).await?;
     let structured = result

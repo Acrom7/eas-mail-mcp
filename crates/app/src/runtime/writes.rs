@@ -76,18 +76,22 @@ impl Runtime {
         &self,
         input: MailReplyInput,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        let mail = self.references.mail(&input.mail_ref)?;
-        let backend = self.require_write(&mail.account_id)?;
+        let reference = self.references.mail(&input.mail_ref)?;
+        let backend = self.require_write(&reference.account_id)?;
+        let mail = self.account_result(
+            &reference.account_id,
+            backend.fetch_mail(&reference.source, 1).await,
+        )?;
         let message = reply_message(&mail, &backend.account().email, &input)?;
         validate_message(&message)?;
-        let _guard = self.write_locks.acquire(&mail.account_id).await?;
+        let _guard = self.write_locks.acquire(&reference.account_id).await?;
         let begin =
-            self.begin_write(&mail.account_id, "mail_reply", &input.idempotency_key, &input)?;
+            self.begin_write(&reference.account_id, "mail_reply", &input.idempotency_key, &input)?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
         }
-        let result = backend.reply(&begin.record.client_id, &mail.source, &message).await;
-        self.finish_write(&mail.account_id, &begin.record.operation_id, result)
+        let result = backend.reply(&begin.record.client_id, &reference.source, &message).await;
+        self.finish_write(&reference.account_id, &begin.record.operation_id, result)
             .map(|value| (value, Vec::new()))
     }
 
@@ -95,21 +99,29 @@ impl Runtime {
         &self,
         input: MailForwardInput,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        let mail = self.references.mail(&input.mail_ref)?;
-        let backend = self.require_write(&mail.account_id)?;
+        let reference = self.references.mail(&input.mail_ref)?;
+        let backend = self.require_write(&reference.account_id)?;
+        let mail = self.account_result(
+            &reference.account_id,
+            backend.fetch_mail(&reference.source, 1).await,
+        )?;
         let mut message = forward_message(&mail, &input.body);
         message.to.clone_from(&input.to);
         message.cc.clone_from(&input.cc);
         message.bcc.clone_from(&input.bcc);
         validate_message(&message)?;
-        let _guard = self.write_locks.acquire(&mail.account_id).await?;
-        let begin =
-            self.begin_write(&mail.account_id, "mail_forward", &input.idempotency_key, &input)?;
+        let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let begin = self.begin_write(
+            &reference.account_id,
+            "mail_forward",
+            &input.idempotency_key,
+            &input,
+        )?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
         }
-        let result = backend.forward(&begin.record.client_id, &mail.source, &message).await;
-        self.finish_write(&mail.account_id, &begin.record.operation_id, result)
+        let result = backend.forward(&begin.record.client_id, &reference.source, &message).await;
+        self.finish_write(&reference.account_id, &begin.record.operation_id, result)
             .map(|value| (value, Vec::new()))
     }
 

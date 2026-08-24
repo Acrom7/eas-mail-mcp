@@ -159,7 +159,6 @@ impl Runtime {
         };
         let mut steps = STEP_ITEM;
         self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.references.invalidate_event(&input.event_ref)?;
         let event_ref = self.references.insert_event(updated)?;
         if let Some(mime) = request_mime {
             if let Err(error) = backend.send_calendar_message(&request_id, mime).await {
@@ -210,7 +209,6 @@ impl Runtime {
         if let Err(error) = backend.delete_calendar_item(&source).await {
             return self.calendar_failure(&begin.record, 0, error, None);
         }
-        self.references.invalidate_event(&input.event_ref)?;
         self.journal.checkpoint(&begin.record.operation_id, STEP_ITEM)?;
         self.calendar_success(&begin.record, STEP_ITEM, None)
     }
@@ -259,7 +257,6 @@ impl Runtime {
         }
         let mut steps = STEP_ITEM;
         self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.references.invalidate_event(&input.event_ref)?;
         if let Err(error) = backend.send_calendar_message(&cancel_id, mime).await {
             return self.calendar_failure(&begin.record, steps, error, None);
         }

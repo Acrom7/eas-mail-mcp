@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Duration, Utc};
-use eas_mail_protocol::{CalendarFields, MailFields};
+use eas_mail_protocol::MailFields;
 
 use super::*;
 use crate::backend::MailSource;
@@ -39,48 +39,46 @@ impl IdGenerator for SequenceIds {
 }
 
 #[test]
-fn insertion_prunes_all_expired_reference_kinds() -> Result<()> {
+fn object_references_survive_cursor_ttl() -> Result<()> {
     let clock = Arc::new(ManualClock(Mutex::new(DateTime::UNIX_EPOCH)));
     let references = References::new(clock.clone(), Arc::new(SequenceIds::default()));
+    let mail_ref = references.insert_mail(mail("message-1"))?;
+    let (_, cursor) = references.first_mail_page(summaries(), 1)?;
 
-    references.insert_mail(mail("old"))?;
-    references.insert_event(event("old"))?;
-    references.insert_attachment(attachment("old"))?;
-    let (_, old_cursor) = references.first_mail_page(summaries(), 1)?;
-    clock.advance(Duration::minutes(LIFETIME_MINUTES - 1))?;
+    clock.advance(Duration::minutes(LIFETIME_MINUTES + 1))?;
 
-    let unexpired = references.insert_mail(mail("unexpired"))?;
-    let (_, unexpired_cursor) = references.first_mail_page(summaries(), 1)?;
-    {
-        let state = references.lock()?;
-        assert_eq!(state.mail.len(), 2);
-        assert_eq!(state.events.len(), 1);
-        assert_eq!(state.attachments.len(), 1);
-        assert!(state.cursors.contains_key(&required(old_cursor)?));
-    }
-    clock.advance(Duration::minutes(1))?;
-
-    let current = references.insert_mail(mail("current"))?;
-    let state = references.lock()?;
-    assert_eq!(state.mail.len(), 2);
-    assert!(state.mail.contains_key(&unexpired));
-    assert!(state.mail.contains_key(&current));
-    assert!(state.events.is_empty());
-    assert!(state.attachments.is_empty());
-    assert_eq!(state.cursors.len(), 1);
-    assert!(state.cursors.contains_key(&required(unexpired_cursor)?));
+    assert_eq!(references.mail(&mail_ref)?.source, mail("message-1").source);
+    let Err(error) = references.next_mail_page(&required(cursor)?, 1) else {
+        return Err(AppError::new(ErrorCode::ProtocolError, "expired cursor was accepted"));
+    };
+    assert_eq!(error.envelope.code, ErrorCode::ReferenceExpired);
     Ok(())
 }
 
 #[test]
-fn backward_clock_jump_restarts_the_prune_interval() -> Result<()> {
+fn insertion_prunes_expired_cursors_and_keeps_current_snapshot() -> Result<()> {
+    let clock = Arc::new(ManualClock(Mutex::new(DateTime::UNIX_EPOCH)));
+    let references = References::new(clock.clone(), Arc::new(SequenceIds::default()));
+    let (_, old_cursor) = references.first_mail_page(summaries(), 1)?;
+    clock.advance(Duration::minutes(LIFETIME_MINUTES))?;
+    let (_, current_cursor) = references.first_mail_page(summaries(), 1)?;
+
+    let state = references.lock()?;
+    assert_eq!(state.cursors.len(), 1);
+    assert!(!state.cursors.contains_key(&required(old_cursor)?));
+    assert!(state.cursors.contains_key(&required(current_cursor)?));
+    Ok(())
+}
+
+#[test]
+fn backward_clock_jump_restarts_the_cursor_prune_interval() -> Result<()> {
     let future = DateTime::UNIX_EPOCH + Duration::hours(1);
     let clock = Arc::new(ManualClock(Mutex::new(future)));
     let references = References::new(clock.clone(), Arc::new(SequenceIds::default()));
-    references.insert_mail(mail("future"))?;
+    let _ = references.first_mail_page(summaries(), 1)?;
 
     clock.set(DateTime::UNIX_EPOCH)?;
-    references.insert_mail(mail("after-jump"))?;
+    let _ = references.first_mail_page(summaries(), 1)?;
     assert_eq!(references.lock()?.last_pruned_at, Some(DateTime::UNIX_EPOCH));
     Ok(())
 }
@@ -116,27 +114,6 @@ fn mail(server_id: &str) -> BackendMail {
         folder_id: "inbox".into(),
         source: MailSource::Item { folder_id: "inbox".into(), server_id: server_id.into() },
         fields: MailFields::default(),
-    }
-}
-
-fn event(server_id: &str) -> BackendEvent {
-    BackendEvent {
-        account_id: "account".into(),
-        long_id: server_id.into(),
-        collection_id: None,
-        server_id: None,
-        fields: CalendarFields::default(),
-    }
-}
-
-fn attachment(file_reference: &str) -> AttachmentReference {
-    AttachmentReference {
-        account_id: "account".into(),
-        file_reference: file_reference.into(),
-        display_name: "file.txt".into(),
-        content_type: "text/plain".into(),
-        size: 1,
-        is_inline: false,
     }
 }
 

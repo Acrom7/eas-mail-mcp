@@ -87,7 +87,7 @@ async fn all_calendar_lifecycle_tools_execute_expected_steps() -> anyhow::Result
 }
 
 #[tokio::test]
-async fn completed_update_replays_after_reference_invalidation_and_detects_conflict()
+async fn completed_update_replays_with_a_portable_reference_and_detects_conflict()
 -> anyhow::Result<()> {
     let backend = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory, _) = make_runtime(backend.clone())?;
@@ -161,10 +161,14 @@ async fn meeting_request_mail_ref_responds_through_search_long_id() -> anyhow::R
     );
     assert_eq!(backend.operations()?, ["calendar_respond_request", "calendar_send"]);
 
-    let expired = CalendarRespondInput { idempotency_key: uuid(13), ..input };
+    let repeated_with_new_id = CalendarRespondInput { idempotency_key: uuid(13), ..input };
     assert_eq!(
-        runtime.calendar_respond(expired).await.error.map(|error| error.code),
-        Some(ErrorCode::ReferenceExpired)
+        runtime.calendar_respond(repeated_with_new_id).await.data.map(|result| result.status),
+        Some(CalendarOperationState::Succeeded)
+    );
+    assert_eq!(
+        backend.operations()?,
+        ["calendar_respond_request", "calendar_send", "calendar_respond_request", "calendar_send"]
     );
     Ok(())
 }
@@ -266,7 +270,7 @@ async fn recurrence_and_missing_capabilities_fail_before_mutation() -> anyhow::R
         runtime.calendar_update(input).await.error.map(|error| error.code),
         Some(ErrorCode::ValidationFailed)
     );
-    assert_eq!(recurring.source_resolutions(), 0);
+    assert_eq!(recurring.source_resolutions(), 1);
     assert!(journal.lookup(&uuid(30))?.is_none());
 
     let personal_disabled =

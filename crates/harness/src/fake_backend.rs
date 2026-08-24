@@ -28,6 +28,7 @@ pub struct FakeBackend {
     operation_failure: Mutex<Option<(String, ErrorCode)>>,
     mail_count: usize,
     operations: Mutex<Vec<String>>,
+    calendar_items: Mutex<BTreeMap<String, BackendEvent>>,
     source_resolutions: AtomicUsize,
     capabilities: BackendCapabilities,
     delay: Duration,
@@ -37,6 +38,11 @@ impl FakeBackend {
     /// Creates a successful backend with write tools enabled.
     #[must_use]
     pub fn new(account_id: &str) -> Self {
+        let calendar_items =
+            [event(account_id), received_event(account_id), recurring_event(account_id)]
+                .into_iter()
+                .filter_map(|value| value.server_id.clone().map(|key| (key, value)))
+                .collect();
         Self {
             account: BackendAccount {
                 account_id: account_id.into(),
@@ -50,6 +56,7 @@ impl FakeBackend {
             operation_failure: Mutex::new(None),
             mail_count: 1,
             operations: Mutex::new(Vec::new()),
+            calendar_items: Mutex::new(calendar_items),
             source_resolutions: AtomicUsize::new(0),
             capabilities: BackendCapabilities {
                 calendar_availability: true,
@@ -154,6 +161,47 @@ impl FakeBackend {
     fn record(&self, value: &str) -> Result<()> {
         self.operations.lock().map_err(|_| failure(ErrorCode::StorageError))?.push(value.into());
         Ok(())
+    }
+
+    fn calendar_item(&self, source: &BackendEvent) -> Result<BackendEvent> {
+        let key = source
+            .server_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or_else(|| (!source.long_id.is_empty()).then_some(source.long_id.as_str()))
+            .ok_or_else(|| failure(ErrorCode::NotFound))?;
+        self.calendar_items
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .get(key)
+            .cloned()
+            .ok_or_else(|| failure(ErrorCode::NotFound))
+    }
+
+    fn store_calendar_item(&self, value: BackendEvent) -> Result<()> {
+        let key = value.server_id.clone().ok_or_else(|| failure(ErrorCode::ProtocolError))?;
+        self.calendar_items
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .insert(key, value);
+        Ok(())
+    }
+
+    fn remove_calendar_item(&self, source: &BackendEvent) -> Result<()> {
+        let key = source
+            .server_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| failure(ErrorCode::NotFound))?;
+        if key != "event-created" {
+            return Ok(());
+        }
+        self.calendar_items
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .remove(key)
+            .map(|_| ())
+            .ok_or_else(|| failure(ErrorCode::NotFound))
     }
 }
 
@@ -271,16 +319,13 @@ impl AccountBackend for FakeBackend {
 
     async fn fetch_calendar(&self, source: &BackendEvent, _: usize) -> Result<BackendEvent> {
         self.check().await?;
-        Ok(source.clone())
+        self.calendar_item(source)
     }
 
     async fn resolve_calendar_source(&self, source: &BackendEvent) -> Result<BackendEvent> {
         self.source_resolutions.fetch_add(1, Ordering::Relaxed);
         self.check().await?;
-        let mut output = source.clone();
-        output.collection_id.get_or_insert_with(|| "calendar".into());
-        output.server_id.get_or_insert_with(|| "event-1".into());
-        Ok(output)
+        self.calendar_item(source)
     }
 
     async fn create_calendar_item(
@@ -290,7 +335,9 @@ impl AccountBackend for FakeBackend {
     ) -> Result<BackendEvent> {
         self.check_operation("calendar_create_item").await?;
         self.record("calendar_create_item")?;
-        Ok(event_from_application(&self.account.account_id, &item.application))
+        let event = event_from_application(&self.account.account_id, &item.application);
+        self.store_calendar_item(event.clone())?;
+        Ok(event)
     }
 
     async fn update_calendar_item(
@@ -303,12 +350,16 @@ impl AccountBackend for FakeBackend {
         let mut output = event_from_application(&self.account.account_id, &item.application);
         output.collection_id.clone_from(&source.collection_id);
         output.server_id.clone_from(&source.server_id);
+        if output.server_id.as_deref() == Some("event-created") {
+            self.store_calendar_item(output.clone())?;
+        }
         Ok(output)
     }
 
-    async fn delete_calendar_item(&self, _: &BackendEvent) -> Result<()> {
+    async fn delete_calendar_item(&self, source: &BackendEvent) -> Result<()> {
         self.check_operation("calendar_delete_item").await?;
-        self.record("calendar_delete_item")
+        self.record("calendar_delete_item")?;
+        self.remove_calendar_item(source)
     }
 
     async fn respond_calendar_item(

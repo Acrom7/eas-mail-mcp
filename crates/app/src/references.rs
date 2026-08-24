@@ -3,6 +3,10 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, Utc};
 
+mod object;
+
+pub(crate) use object::{AttachmentReference, MeetingReference};
+
 use crate::backend::{BackendEvent, BackendMail};
 use crate::model::MailSummary;
 use crate::{AppError, ErrorCode, Result};
@@ -43,22 +47,6 @@ impl IdGenerator for RandomIds {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct AttachmentReference {
-    pub(super) account_id: String,
-    pub(super) file_reference: String,
-    pub(super) display_name: String,
-    pub(super) content_type: String,
-    pub(super) size: u64,
-    pub(super) is_inline: bool,
-}
-
-#[derive(Clone)]
-pub(super) enum MeetingReference {
-    Event(BackendEvent),
-    Mail(BackendMail),
-}
-
 #[derive(Clone)]
 enum Snapshot {
     Mail(Arc<Vec<MailSummary>>),
@@ -77,9 +65,6 @@ struct Timed<T> {
 
 #[derive(Default)]
 struct State {
-    mail: BTreeMap<String, Timed<BackendMail>>,
-    events: BTreeMap<String, Timed<BackendEvent>>,
-    attachments: BTreeMap<String, Timed<AttachmentReference>>,
     cursors: BTreeMap<String, Timed<Cursor>>,
     cursor_order: VecDeque<String>,
     last_pruned_at: Option<DateTime<Utc>>,
@@ -97,91 +82,39 @@ impl References {
     }
 
     pub(super) fn insert_mail(&self, value: BackendMail) -> Result<String> {
-        let id = format!("mail_{}", self.ids.next());
-        let now = self.clock.now();
-        let expires_at = expires_at(now);
-        let mut state = self.lock()?;
-        maybe_prune(&mut state, now);
-        state.mail.insert(id.clone(), Timed { expires_at, value });
-        Ok(id)
+        object::encode_mail(value)
     }
 
     pub(super) fn mail(&self, id: &str) -> Result<BackendMail> {
-        let now = self.clock.now();
-        let mut state = self.lock()?;
-        prune(&mut state, now);
-        state.mail.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
-    }
-
-    pub(super) fn invalidate_mail(&self, id: &str) -> Result<()> {
-        let mut state = self.lock()?;
-        state.mail.remove(id);
-        Ok(())
+        object::decode_mail(id)
     }
 
     pub(super) fn insert_event(&self, value: BackendEvent) -> Result<String> {
-        let id = format!("event_{}", self.ids.next());
-        let now = self.clock.now();
-        let expires_at = expires_at(now);
-        let mut state = self.lock()?;
-        maybe_prune(&mut state, now);
-        state.events.insert(id.clone(), Timed { expires_at, value });
-        Ok(id)
+        object::encode_event(value)
     }
 
     pub(super) fn event(&self, id: &str) -> Result<BackendEvent> {
-        let now = self.clock.now();
-        let mut state = self.lock()?;
-        prune(&mut state, now);
-        state.events.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
+        object::decode_event(id)
     }
 
     pub(super) fn meeting(&self, id: &str) -> Result<MeetingReference> {
-        let now = self.clock.now();
-        let mut state = self.lock()?;
-        prune(&mut state, now);
-        if let Some(entry) = state.events.get(id) {
-            return Ok(MeetingReference::Event(entry.value.clone()));
-        }
-        state
-            .mail
-            .get(id)
-            .map(|entry| MeetingReference::Mail(entry.value.clone()))
-            .ok_or_else(expired)
-    }
-
-    pub(super) fn invalidate_event(&self, id: &str) -> Result<()> {
-        let mut state = self.lock()?;
-        state.events.remove(id);
-        Ok(())
+        object::decode_meeting(id)
     }
 
     pub(super) fn insert_attachment(&self, value: AttachmentReference) -> Result<String> {
-        let id = format!("attachment_{}", self.ids.next());
-        let now = self.clock.now();
-        let expires_at = expires_at(now);
-        let mut state = self.lock()?;
-        maybe_prune(&mut state, now);
-        state.attachments.insert(id.clone(), Timed { expires_at, value });
-        Ok(id)
+        object::encode_attachment(value)
     }
 
     pub(super) fn attachment(&self, id: &str) -> Result<AttachmentReference> {
-        let now = self.clock.now();
-        let mut state = self.lock()?;
-        prune(&mut state, now);
-        state.attachments.get(id).map(|entry| entry.value.clone()).ok_or_else(expired)
+        object::decode_attachment(id)
     }
 
     pub(super) fn next_token(&self, prefix: &str) -> String {
         format!("{prefix}_{}", self.ids.next())
     }
 
-    pub(super) fn purge_account(&self, account_id: &str) -> Result<()> {
+    pub(super) fn purge_account(&self, _account_id: &str) -> Result<()> {
         let mut state = self.lock()?;
-        state.mail.retain(|_, item| item.value.account_id != account_id);
-        state.events.retain(|_, item| item.value.account_id != account_id);
-        state.attachments.retain(|_, item| item.value.account_id != account_id);
         state.cursors.clear();
         state.cursor_order.clear();
         Ok(())
@@ -274,9 +207,6 @@ fn snapshot_len(snapshot: &Snapshot) -> usize {
 }
 
 fn prune(state: &mut State, now: DateTime<Utc>) {
-    state.mail.retain(|_, value| value.expires_at > now);
-    state.events.retain(|_, value| value.expires_at > now);
-    state.attachments.retain(|_, value| value.expires_at > now);
     state.cursors.retain(|_, value| value.expires_at > now);
     state.cursor_order.retain(|id| state.cursors.contains_key(id));
     state.last_pruned_at = Some(now);

@@ -43,7 +43,7 @@ async fn black_box_cursor_expiry_is_reported_through_stdio() -> Result<()> {
 }
 
 #[tokio::test]
-async fn black_box_calendar_event_reference_expires_after_fifteen_minutes() -> Result<()> {
+async fn black_box_calendar_event_reference_survives_cursor_ttl() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let clock_file = directory.path().join("clock");
     std::fs::write(&clock_file, "1700000000")?;
@@ -59,14 +59,12 @@ async fn black_box_calendar_event_reference_expires_after_fifteen_minutes() -> R
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("calendar_search returned no event reference"))?;
     std::fs::write(&clock_file, "1700000960")?;
-    let expired =
-        tool_call(client.peer(), "calendar_get", Some(json!({ "event_ref": event_ref }))).await?;
-    let structured = expired
-        .structured_content
-        .ok_or_else(|| anyhow::anyhow!("calendar_get returned no structured error"))?;
+    let structured =
+        successful_call(client.peer(), "calendar_get", Some(json!({ "event_ref": event_ref })))
+            .await?;
     anyhow::ensure!(
-        structured.pointer("/error/code").and_then(Value::as_str) == Some("REFERENCE_EXPIRED"),
-        "unexpected calendar reference error: {structured}"
+        structured.pointer("/data/event_ref").and_then(Value::as_str) == Some(event_ref),
+        "calendar reference changed after cursor TTL: {structured}"
     );
     client.cancel().await?;
     Ok(())

@@ -68,7 +68,6 @@ impl Runtime {
             };
         let mut steps = STEP_RESPONSE;
         self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.references.invalidate_event(&input.event_ref)?;
         let event_ref = response_reference(self, source, calendar_id, input.response)?;
         if let Some(mime) = reply_mime {
             if let Err(error) = backend.send_calendar_message(&reply_id, mime).await {
@@ -114,7 +113,6 @@ impl Runtime {
         }
         let mut steps = STEP_RESPONSE;
         self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.references.invalidate_mail(&input.event_ref)?;
         if let Err(error) = backend.send_calendar_message(&reply_id, reply_mime).await {
             return self.calendar_failure(&begin.record, steps, error, None);
         }
