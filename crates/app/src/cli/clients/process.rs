@@ -1,3 +1,6 @@
+#[cfg(windows)]
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
@@ -45,8 +48,8 @@ pub(super) fn output_with_timeout(
     arguments: &[&str],
     timeout: Duration,
 ) -> Result<Output> {
-    let mut child = Command::new(executable)
-        .args(arguments)
+    let executable = resolve_executable(executable);
+    let mut child = client_command(&executable, arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -62,6 +65,95 @@ pub(super) fn output_with_timeout(
     }
     child.wait_with_output().map_err(|_| {
         AppError::new(ErrorCode::ConfigInvalid, "cannot read AI client command output")
+    })
+}
+
+#[cfg(windows)]
+fn client_command(executable: &Path, arguments: &[&str]) -> Command {
+    use std::os::windows::process::CommandExt as _;
+
+    if executable.extension().and_then(|value| value.to_str()).is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+    }) {
+        let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
+        let mut command = Command::new(shell);
+        command.args(["/D", "/S", "/C"]);
+        command.raw_arg(batch_command_line(executable, arguments));
+        return command;
+    }
+    let mut command = Command::new(executable);
+    command.args(arguments);
+    command
+}
+
+#[cfg(windows)]
+fn batch_command_line(executable: &Path, arguments: &[&str]) -> OsString {
+    let mut line = OsString::from("\"");
+    push_quoted_batch_argument(&mut line, executable.as_os_str());
+    for argument in arguments {
+        line.push(" ");
+        push_quoted_batch_argument(&mut line, OsStr::new(argument));
+    }
+    line.push("\"");
+    line
+}
+
+#[cfg(windows)]
+fn push_quoted_batch_argument(line: &mut OsString, argument: &OsStr) {
+    line.push("\"");
+    line.push(argument);
+    line.push("\"");
+}
+
+#[cfg(not(windows))]
+fn client_command(executable: &Path, arguments: &[&str]) -> Command {
+    let mut command = Command::new(executable);
+    command.args(arguments);
+    command
+}
+
+#[cfg(windows)]
+pub(super) fn resolve_executable(executable: &str) -> PathBuf {
+    let requested = Path::new(executable);
+    if requested.extension().is_some() {
+        return requested.to_owned();
+    }
+    let extensions = windows_executable_extensions();
+    if requested.components().count() > 1 {
+        return with_first_existing_extension(requested, &extensions)
+            .unwrap_or_else(|| requested.to_owned());
+    }
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .find_map(|directory| {
+            with_first_existing_extension(&directory.join(requested), &extensions)
+        })
+        .unwrap_or_else(|| requested.to_owned())
+}
+
+#[cfg(not(windows))]
+pub(super) fn resolve_executable(executable: &str) -> PathBuf {
+    PathBuf::from(executable)
+}
+
+#[cfg(windows)]
+fn windows_executable_extensions() -> Vec<String> {
+    std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|extension| !extension.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+#[cfg(windows)]
+fn with_first_existing_extension(path: &Path, extensions: &[String]) -> Option<PathBuf> {
+    extensions.iter().find_map(|extension| {
+        let mut candidate = path.as_os_str().to_owned();
+        candidate.push(extension);
+        let candidate = PathBuf::from(candidate);
+        candidate.is_file().then_some(candidate)
     })
 }
 

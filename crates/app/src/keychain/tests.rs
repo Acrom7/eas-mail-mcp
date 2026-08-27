@@ -2,6 +2,15 @@ use eas_mail_protocol::protocol::evaluate_policy;
 
 use super::*;
 
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn native_credential_store_is_persistent() {
+    assert!(matches!(
+        keyring::default::default_credential_builder().persistence(),
+        keyring::credential::CredentialPersistence::UntilDelete
+    ));
+}
+
 #[test]
 fn version_one_bundle_and_device_id_validate() -> anyhow::Result<()> {
     let mut bundle = SecretBundle::new();

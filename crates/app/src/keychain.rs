@@ -154,7 +154,7 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self) -> Result<()>;
 }
 
-/// Native macOS Keychain implementation.
+/// Native operating-system credential-store implementation.
 #[derive(Debug, Clone)]
 pub struct KeychainStore {
     journal_path: PathBuf,
