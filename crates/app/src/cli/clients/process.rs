@@ -4,12 +4,16 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
+#[cfg(not(windows))]
 use wait_timeout::ChildExt as _;
 
 use super::ClientKind;
 use crate::{AppError, ErrorCode, Result};
 
 const CLIENT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[cfg(windows)]
+mod windows_job;
 
 pub(super) fn replace_cli_server(executable: &str, remove: &[&str], add: &[&str]) -> Result<()> {
     command(executable, remove, true)?;
@@ -49,10 +53,19 @@ pub(super) fn output_with_timeout(
     timeout: Duration,
 ) -> Result<Output> {
     let executable = resolve_executable(executable);
-    let mut child = client_command(&executable, arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    let mut command = client_command(&executable, arguments);
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command_output(command, timeout)
+}
+
+#[cfg(windows)]
+fn command_output(command: Command, timeout: Duration) -> Result<Output> {
+    windows_job::output(command, timeout)
+}
+
+#[cfg(not(windows))]
+fn command_output(mut command: Command, timeout: Duration) -> Result<Output> {
+    let mut child = command
         .spawn()
         .map_err(|_| AppError::new(ErrorCode::NotFound, "AI client executable is unavailable"))?;
     let status = child

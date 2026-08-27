@@ -52,6 +52,7 @@ keyring = { workspace = true, features = ["apple-native"] }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { workspace = true, features = ["windows-native"] }
+process-wrap.workspace = true
 rusqlite = { workspace = true, features = ["bundled"] }
 
 [dev-dependencies]

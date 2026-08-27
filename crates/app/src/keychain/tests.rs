@@ -89,6 +89,30 @@ fn failed_memory_update_does_not_commit_partial_state() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn credential_capacity_error_is_actionable_and_redacted() -> anyhow::Result<()> {
+    let error = keychain_error(keyring::Error::TooLong("private fixture attribute".into(), 2560));
+    assert_eq!(error.envelope.code, ErrorCode::StorageError);
+    assert!(!error.envelope.retryable);
+    assert!(error.envelope.message.contains("per-entry size limit"));
+    assert!(error.envelope.remediation.as_deref().is_some_and(|value| {
+        value.contains("all accounts in one credential entry")
+            && value.contains("Remove unused accounts")
+    }));
+    assert!(!serde_json::to_string(&error.envelope)?.contains("private fixture attribute"));
+    Ok(())
+}
+
+#[test]
+fn other_credential_errors_keep_the_unlock_remediation() {
+    let error = keychain_error(keyring::Error::NoEntry);
+    assert_eq!(error.envelope.code, ErrorCode::AuthRequired);
+    assert_eq!(
+        error.envelope.remediation.as_deref(),
+        Some("Unlock the user credential store and retry")
+    );
+}
+
 fn secret(device_id: String) -> AccountSecret {
     let decision = evaluate_policy(&BTreeMap::new());
     AccountSecret {

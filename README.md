@@ -9,6 +9,10 @@ designed for managed or on-premises Exchange environments where EAS is available
 and a hosted connector, Microsoft Graph, or a local mailbox database is
 undesirable.
 
+Platforms: **macOS 14+** (Apple Silicon and Intel) and **Windows 11 x64**.
+Windows support is new in `0.4.0`; see
+[compatibility and validation limits](#compatibility-and-limits).
+
 The public npm packages contain no operator server, domain, realm, certificate,
 account, or password. Endpoint profiles are created or imported locally, and
 credentials stay in the operating system credential store.
@@ -202,6 +206,16 @@ or an externally hosted AI model.
 Linux are not supported. The Windows executable is distributed without an
 Authenticode signature. Each release contains the root npm tarball plus three
 native tarballs for the supported platform/architecture pairs.
+
+Windows validation includes local CLI/MCP tests and an offline npm package
+installation under Wine. Native Windows validation is still pending for the
+generated npm `.cmd` launcher, Credential Manager, symlink/reparse-point
+protections, and live Exchange connectivity. Wine testing is not a substitute
+for that end-to-end check.
+
+Windows `0.4.0` stores all accounts in one Credential Manager entry, limited to
+2,560 bytes of UTF-16 data. The number of accounts that fit depends on their
+credentials and device/policy state; see [local data](docs/getting-started.md#local-data).
 
 The runtime intentionally fixes HTTPS, EAS 14.1,
 `/Microsoft-Server-ActiveSync`, and `DeviceType=EasMailMCP`. It does not support

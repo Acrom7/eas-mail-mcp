@@ -250,6 +250,20 @@ policy state, and the HMAC key used by the content-free idempotency journal.
 Mail and calendar data are not stored in a local database. Explicitly
 downloaded attachments use the application cache and expire automatically.
 
+### Windows 0.4.0 credential capacity
+
+All accounts share one Credential Manager entry. Windows limits its credential
+blob to [2,560 bytes](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw);
+the current backend encodes the entire JSON secret bundle as UTF-16. Passwords,
+Device IDs, policy state, account IDs, and the HMAC key all count toward this
+limit, so there is no fixed maximum number of accounts.
+
+An oversized update returns `STORAGE_ERROR` with a size-limit message instead
+of suggesting that the store is locked. The previous credential entry remains
+unchanged. Remove unused accounts through the CLI before retrying. Do not
+shorten passwords or move secrets into configuration files to work around the
+limit. This restriction does not apply to macOS Keychain.
+
 The local profile and account files are trusted against accidental corruption,
 not a malicious process running as the same operating-system user. See
 [Security](../SECURITY.md) for the complete boundary.
@@ -283,6 +297,7 @@ the CLI before uninstalling when those settings should not remain.
 | `ACCESS_DENIED` | Credentials may be valid, but EAS access, device policy, or an allowlist prevents the operation. Contact the operator. |
 | `CONFIG_INVALID` | The profile or account metadata failed strict validation. Run `profile validate` and do not weaken endpoint or TLS rules. |
 | `INTERACTIVE_REQUIRED` | A command without a TTY omitted required scripted arguments. Run the interactive wizard or provide the documented non-secret flags and `--password-stdin`. |
+| `STORAGE_ERROR` with a per-entry size-limit message | On Windows `0.4.0`, the combined secret bundle exceeds Credential Manager capacity. Remove unused accounts; unlocking the store or re-entering the same password will not fix the size limit. |
 | TLS or network failure | Check the required network/VPN and the profile's approved CA. Do not disable certificate or hostname verification. |
 | MCP is not visible | Run `client configure`, restart the client, then check `doctor` and the client's MCP diagnostics. |
 | Many MCP processes | Check how many client tasks or sessions are active. Each stdio connection has one process; stale processes should disappear after the owning client exits. |

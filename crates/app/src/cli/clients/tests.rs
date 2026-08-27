@@ -379,3 +379,6 @@ fn test_paths(root: &Path) -> Paths {
 }
 
 mod configuration;
+
+#[cfg(windows)]
+mod windows_process;
